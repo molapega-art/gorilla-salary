@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Калькулятор Зарплаты - Администратор</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: #4f46e5 #1f2937;
+        }
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1f2937;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4f46e5;
+            border-radius: 4px;
+        }
+        .glass-effect {
+            background: rgba(17, 24, 39, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(79, 70, 229, 0.2);
+        }
+        .gradient-text {
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+        .card-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(79, 70, 229, 0.2);
+        }
+        .pulse-highlight {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.7;
+            }
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            transition: all 0.3s ease;
+        }
+        .btn-primary:hover {
+            box-shadow: 0 8px 16px rgba(79, 70, 229, 0.4);
+            transform: translateY(-2px);
+        }
+        .input-field {
+            background: rgba(31, 41, 55, 0.6);
+            border: 1px solid rgba(79, 70, 229, 0.3);
+            transition: all 0.3s ease;
+        }
+        .input-field:focus {
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        }
+        table {
+            font-size: 0.875rem;
+        }
+        th {
+            background: rgba(79, 70, 229, 0.1);
+            border-bottom: 2px solid rgba(79, 70, 229, 0.3);
+        }
+        tr:hover {
+            background: rgba(79, 70, 229, 0.05);
+        }
+        .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+        .status-dot.connected {
+            background: #10b981;
+            box-shadow: 0 0 8px #10b981;
+        }
+        .status-dot.disconnected {
+            background: #ef4444;
+        }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const AdminApp = () => {
+            const [transactionsFile, setTransactionsFile] = useState(null);
+            const [catalogFile, setCatalogFile] = useState(null);
+            const [shiftsFile, setShiftsFile] = useState(null);
+            const [advancesFile, setAdvancesFile] = useState(null);
+
+            const [transactionsData, setTransactionsData] = useState(null);
+            const [catalogData, setCatalogData] = useState(null);
+            const [shiftsData, setShiftsData] = useState(null);
+            const [advancesData, setAdvancesData] = useState(null);
+
+            const [monthSheet, setMonthSheet] = useState('');
+            const [availableMonths, setAvailableMonths] = useState([]);
+            const [processedData, setProcessedData] = useState(null);
+            const [loadedFromDb, setLoadedFromDb] = useState(false);
+            const [nameMapping, setNameMapping] = useState({
+                'Давид': 'Гачечиладзе Давид',
+                'Миша А.': 'Alkema Mikhail',
+                'Лиза': 'Galkina Elizaveta',
+                'Кирилл': 'Sennikov Kirill',
+                'Миша Н.': 'Nazarov Mikhail',
+                'Мурат': 'Bobomurod Tolibjonov',
+                'Макс': 'Барсуков Максим',
+                'Lapega Mikhail': 'Lapega Mikhail'
+            });
+            const [errors, setErrors] = useState([]);
+            const [warnings, setWarnings] = useState([]);
+
+            // Google Sheets integration
+            const API_URL = 'https://script.google.com/macros/s/AKfycbwc5_r_FHiVrSiYxS2hUtkLgul8JV1lKyKmcQAkZahgyP60wcBvwMeMU5lu2AUoz1hh/exec';
+            const [appsScriptUrl, setAppsScriptUrl] = useState(API_URL);
+            const [sheetsConnected, setSheetsConnected] = useState(false);
+            const [sheetsLoading, setSheetsLoading] = useState(false);
+            const [savedMonths, setSavedMonths] = useState([]);
+            const [savingToSheets, setSavingToSheets] = useState(false);
+
+            // Автоподключение при загрузке
+            useEffect(() => {
+                (async () => {
+                    setSheetsLoading(true);
+                    try {
+                        const response = await fetch(`${API_URL}?action=test`, { method: 'GET', mode: 'cors' });
+                        const result = await response.json();
+                        if (result.success) {
+                            setSheetsConnected(true);
+                            // Загрузить сохранённые месяцы
+                            const mResp = await fetch(`${API_URL}?action=getMonths`, { method: 'GET', mode: 'cors' });
+                            const mResult = await mResp.json();
+                            if (mResult.success) setSavedMonths(mResult.data || []);
+                        }
+                    } catch (err) {
+                        console.error('Auto-connect failed:', err);
+                    } finally {
+                        setSheetsLoading(false);
+                    }
+                })();
+            }, []);
+
+            const parseExcelFile = (file) => {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const data = new Uint8Array(e.target.result);
+                            const workbook = XLSX.read(data, { type: 'array' });
+                            resolve(workbook);
+                        } catch (err) {
+                            reject(err);
+                        }
+                    };
+                    reader.readAsArrayBuffer(file);
+                });
+            };
+
+            const testSheetsConnection = async () => {
+                if (!appsScriptUrl.trim()) {
+                    setErrors(['Пожалуйста, введите URL Apps Script']);
+                    return;
+                }
+
+                setSheetsLoading(true);
+                try {
+                    const response = await fetch(`${appsScriptUrl}?action=test`, {
+                        method: 'GET',
+                        mode: 'cors'
+                    });
+                    const result = await response.json();
+                    if (result.success) {
+                        setSheetsConnected(true);
+                        setErrors([]);
+                        loadSavedMonths();
+                    } else {
+                        setErrors([`Ошибка подключения: ${result.message}`]);
+                        setSheetsConnected(false);
+                    }
+                } catch (err) {
+                    setErrors([`Ошибка подключения: ${err.message}`]);
+                    setSheetsConnected(false);
+                } finally {
+                    setSheetsLoading(false);
+                }
+            };
+
+            const loadSavedMonths = async () => {
+                if (!appsScriptUrl.trim()) return;
+                try {
+                    const response = await fetch(`${appsScriptUrl}?action=getMonths`, {
+                        method: 'GET',
+                        mode: 'cors'
+                    });
+                    const result = await response.json();
+                    if (result.success) {
+                        setSavedMonths(result.data || []);
+                    }
+                } catch (err) {
+                    console.error('Failed to load months:', err);
+                }
+            };
+
+            const saveToGoogleSheets = async () => {
+                if (!processedData) {
+                    setErrors(['Сначала рассчитайте зарплаты']);
+                    return;
+                }
+
+                if (!sheetsConnected || !appsScriptUrl.trim()) {
+                    setErrors(['Сначала подключитесь к Google Sheets']);
+                    return;
+                }
+
+                setSavingToSheets(true);
+                try {
+                    // Save salary data
+                    const salaryPayload = {
+                        month: processedData.month,
+                        employees: processedData.employees
+                    };
+
+                    const response = await fetch(`${appsScriptUrl}?action=saveSalaryData`, {
+                        method: 'POST',
+                        mode: 'cors',
+                        body: JSON.stringify(salaryPayload)
+                    });
+
+                    const result = await response.json();
+                    if (result.success) {
+                        // Also save transactions with original IDs
+                        const transactions = [];
+                        Object.values(processedData.employees).forEach(emp => {
+                            emp.sales.forEach(sale => {
+                                transactions.push({
+                                    'ID транзакции': sale.txId || '',
+                                    'Дата': sale.date,
+                                    'Магазин': sale.store || '',
+                                    'Кассир': emp.shortName,
+                                    'Товар': sale.product,
+                                    'Артикул': sale.sku || '',
+                                    'Категория': sale.category,
+                                    'Выручка': sale.amount,
+                                    'Месяц': processedData.month
+                                });
+                            });
+                        });
+
+                        if (transactions.length > 0) {
+                            const txResult = await fetch(`${appsScriptUrl}?action=saveTransactions`, {
+                                method: 'POST',
+                                mode: 'cors',
+                                body: JSON.stringify({ transactions })
+                            });
+                            const txData = await txResult.json();
+                            var txInfo = txData.data ? `, Транзакций: ${txData.data.added} новых, ${txData.data.skipped} пропущено` : '';
+                        }
+
+                        // Save catalog
+                        if (catalogData && catalogData.length > 0) {
+                            await fetch(`${appsScriptUrl}?action=saveCatalog`, {
+                                method: 'POST',
+                                mode: 'cors',
+                                body: JSON.stringify({ catalog: catalogData })
+                            });
+                        }
+
+                        // Save shifts
+                        const shifts = [];
+                        Object.values(processedData.employees).forEach(emp => {
+                            if (emp.shifts && emp.shifts.storeSchedule) {
+                                emp.shifts.storeSchedule.forEach((shift, idx) => {
+                                    const pay = emp.shifts.dailyPay?.[shift.dayIndex] || 0;
+                                    if (pay > 0) {
+                                        shifts.push({
+                                            month: processedData.month,
+                                            employee: emp.shortName,
+                                            date: shift.date || '',
+                                            store: shift.store || '',
+                                            pay: pay
+                                        });
+                                    }
+                                });
+                            }
+                        });
+                        if (shifts.length > 0) {
+                            await fetch(`${appsScriptUrl}?action=saveShifts`, {
+                                method: 'POST',
+                                mode: 'cors',
+                                body: JSON.stringify({ shifts })
+                            });
+                        }
+
+                        setErrors([]);
+                        setWarnings([`Успешно сохранено в Google Sheets! Месяц: ${processedData.month}, Сотрудников: ${result.data.saved}${txInfo || ''}`]);
+                        await loadSavedMonths();
+                    } else {
+                        setErrors([`Ошибка сохранения: ${result.message}`]);
+                    }
+                } catch (err) {
+                    setErrors([`Ошибка при отправке в Google Sheets: ${err.message}`]);
+                } finally {
+                    setSavingToSheets(false);
+                }
+            };
+
+            const handleTransactionsUpload = async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                try {
+                    const workbook = await parseExcelFile(file);
+                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const data = XLSX.utils.sheet_to_json(sheet);
+                    setTransactionsFile(file);
+                    setTransactionsData(data);
+                    setWarnings([]);
+
+                    // Показываем статистику загрузки
+                    const uniqueIds = new Set(data.map(r => r['ID транзакции']));
+                    setWarnings([`Загружено: ${data.length} строк, ${uniqueIds.size} уникальных транзакций (чеков). Дубликаты проверяются при сохранении в базу.`]);
+                } catch (err) {
+                    setErrors([`Ошибка при загрузке транзакций: ${err.message}`]);
+                }
+            };
+
+            const handleCatalogUpload = async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                try {
+                    const workbook = await parseExcelFile(file);
+                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const data = XLSX.utils.sheet_to_json(sheet);
+                    setCatalogFile(file);
+                    setCatalogData(data);
+                } catch (err) {
+                    setErrors([`Ошибка при загрузке каталога: ${err.message}`]);
+                }
+            };
+
+            const handleShiftsUpload = async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                try {
+                    const workbook = await parseExcelFile(file);
+                    setShiftsFile(file);
+
+                    const months = workbook.SheetNames.filter(name =>
+                        /[А-Я][а-я]+_\d{2}/.test(name)
+                    );
+                    setAvailableMonths(months);
+                    if (months.length > 0) {
+                        setMonthSheet(months[0]);
+                    }
+
+                    setShiftsData(workbook);
+
+                    if (workbook.SheetNames.includes('Авансы')) {
+                        const advSheet = workbook.Sheets['Авансы'];
+                        const advRows = XLSX.utils.sheet_to_json(advSheet);
+                        setAdvancesData(advRows);
+                        setAdvancesFile({ name: 'Авансы (из графика смен)' });
+                    }
+                } catch (err) {
+                    setErrors([`Ошибка при загрузке смен: ${err.message}`]);
+                }
+            };
+
+            const handleAdvancesUpload = async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                try {
+                    const workbook = await parseExcelFile(file);
+                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const data = XLSX.utils.sheet_to_json(sheet);
+                    setAdvancesFile(file);
+                    setAdvancesData(data);
+                } catch (err) {
+                    setErrors([`Ошибка при загрузке авансов: ${err.message}`]);
+                }
+            };
+
+            const extractShiftData = (sheet) => {
+                const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+                const dates = [];
+                if (rows.length > 0) {
+                    for (let j = 2; j <= 31; j++) {
+                        dates.push(rows[0][j] || null);
+                    }
+                }
+
+                const storeNames = ['City center I', 'City center II', 'Pekini', 'Dry bridge', 'Online'];
+                const storeSchedule = {};
+                for (let storeIdx = 0; storeIdx < 5; storeIdx++) {
+                    const rowIdx = storeIdx + 2;
+                    if (rowIdx >= rows.length) break;
+                    const row = rows[rowIdx];
+                    const storeName = String(row[0] || storeNames[storeIdx]).trim();
+                    for (let j = 2; j <= 31; j++) {
+                        const empName = row[j] ? String(row[j]).trim() : null;
+                        if (empName) {
+                            if (!storeSchedule[empName]) storeSchedule[empName] = [];
+                            storeSchedule[empName].push({
+                                dayIndex: j - 2,
+                                date: dates[j - 2],
+                                store: storeName
+                            });
+                        }
+                    }
+                }
+
+                const employees = {};
+                if (rows.length > 16) {
+                    for (let i = 16; i < rows.length; i++) {
+                        const row = rows[i];
+                        const name = row[0];
+                        if (!name || typeof name !== 'string' && typeof name !== 'number') break;
+
+                        const shortName = String(name).trim();
+                        if (shortName === 'Online' || shortName === '') break;
+                        const shiftCount = row[1] || 0;
+
+                        const dailyPay = [];
+                        for (let j = 2; j <= 31; j++) {
+                            dailyPay.push(row[j] || 0);
+                        }
+
+                        employees[shortName] = {
+                            shiftCount,
+                            dailyPay,
+                            dates,
+                            storeSchedule: storeSchedule[shortName] || [],
+                            totalShiftPay: row[33] || 0,
+                            reviewsBonus: row[34] || 0,
+                            bestDayBonus: row[36] || 0,
+                            topSellerBonus: row[37] || 0,
+                            management: row[38] || 0,
+                            inventoryDeduction: row[39] || 0,
+                            advancePaid: row[40] || 0
+                        };
+                    }
+                }
+
+                return employees;
+            };
+
+            const processData = () => {
+                setLoadedFromDb(false);
+                if (!transactionsData || !catalogData || !shiftsData || !monthSheet) {
+                    setErrors(['Пожалуйста, загрузите все файлы и выберите месяц']);
+                    return;
+                }
+
+                try {
+                    const sheet = shiftsData.Sheets[monthSheet];
+                    const shiftEmployees = extractShiftData(sheet);
+
+                    const catalogMap = {};
+                    catalogData.forEach(item => {
+                        catalogMap[item['Артикул']] = {
+                            name: item['Наименование'],
+                            category: item['Категория'],
+                            price: item['Цена продажи']
+                        };
+                    });
+
+                    const bonusCategories = {
+                        'LED - Grow Lighting': 0.05,
+                        'CBD > CBD Gorilla': 0.14,
+                        'CBD > CBD Global': 0.07,
+                        'CBD > CBD Other': 0.05
+                    };
+
+                    const reverseMapping = {};
+                    Object.entries(nameMapping).forEach(([shortName, fullName]) => {
+                        reverseMapping[fullName] = shortName;
+                        reverseMapping[fullName.trim()] = shortName;
+                    });
+
+                    const employeeData = {};
+                    const dailySales = {};
+
+                    // Обрабатываем ВСЕ строки — один чек = несколько товаров = несколько строк с одним ID
+                    transactionsData.forEach(row => {
+                        const cashierFull = String(row['ФИО кассира'] || '').trim();
+                        const shortName = reverseMapping[cashierFull] || cashierFull;
+                        const date = row['Дата'];
+                        const sku = row['Артикул'];
+                        const netRevenue = parseFloat(row['Чистая выручка']) || 0;
+
+                        if (!employeeData[shortName]) {
+                            employeeData[shortName] = {
+                                shortName: shortName,
+                                fullName: cashierFull,
+                                shifts: shiftEmployees[shortName] || {},
+                                sales: [],
+                                dailySales: {},
+                                bonusByCategory: {},
+                                totalSales: 0,
+                                totalBonus: 0,
+                                bestDayBonus: 0,
+                                topSellerBonus: 0
+                            };
+                        }
+
+                        const catalogItem = catalogMap[sku] || {};
+                        const category = catalogItem.category || 'Прочее';
+                        const bonusRate = bonusCategories[category] || 0;
+                        const bonus = netRevenue * bonusRate;
+
+                        if (!employeeData[shortName].bonusByCategory[category]) {
+                            employeeData[shortName].bonusByCategory[category] = {
+                                amount: 0,
+                                bonus: 0,
+                                rate: bonusRate
+                            };
+                        }
+
+                        employeeData[shortName].bonusByCategory[category].amount += netRevenue;
+                        employeeData[shortName].bonusByCategory[category].bonus += bonus;
+                        employeeData[shortName].sales.push({
+                            txId: row['ID транзакции'],
+                            date,
+                            store: row['Магазин'] || '',
+                            product: catalogItem.name || row['Наименование товара'],
+                            sku: sku,
+                            category,
+                            amount: netRevenue,
+                            bonus
+                        });
+                        employeeData[shortName].totalSales += netRevenue;
+                        employeeData[shortName].totalBonus += bonus;
+
+                        const key = `${shortName}_${date}`;
+                        if (!dailySales[key]) dailySales[key] = 0;
+                        dailySales[key] += netRevenue;
+                        employeeData[shortName].dailySales[date] = (employeeData[shortName].dailySales[date] || 0) + netRevenue;
+                    });
+
+                    let bestDay = { employee: '', date: '', amount: 0 };
+                    let topSeller = { employee: '', amount: 0 };
+
+                    Object.entries(dailySales).forEach(([key, amount]) => {
+                        const [employee, date] = key.split('_');
+                        if (amount > bestDay.amount) {
+                            bestDay = { employee, date, amount };
+                        }
+                    });
+
+                    Object.entries(employeeData).forEach(([name, data]) => {
+                        if (data.totalSales > topSeller.amount) {
+                            topSeller = { employee: name, amount: data.totalSales };
+                        }
+                    });
+
+                    if (bestDay.employee) {
+                        employeeData[bestDay.employee].bestDayBonus = 100;
+                    }
+                    if (topSeller.employee) {
+                        employeeData[topSeller.employee].topSellerBonus = topSeller.amount * 0.02;
+                    }
+
+                    if (advancesData) {
+                        const advancesMap = {};
+                        advancesData.forEach(row => {
+                            const empName = String(row['Сотрудник'] || '').trim();
+                            const month = String(row['Месяц (за который берем аванс)'] || '').trim();
+                            if (month === monthSheet) {
+                                if (!advancesMap[empName]) advancesMap[empName] = 0;
+                                advancesMap[empName] += parseFloat(row['Сумма']) || 0;
+                            }
+                        });
+
+                        Object.entries(advancesMap).forEach(([name, advance]) => {
+                            if (employeeData[name]) {
+                                employeeData[name].advances = advance;
+                            }
+                        });
+                    }
+
+                    Object.values(employeeData).forEach(emp => {
+                        emp.shiftPay = emp.shifts.totalShiftPay || 0;
+                        emp.advances = emp.advances || 0;
+                        emp.totalToPay = emp.shiftPay + emp.totalBonus + emp.bestDayBonus + emp.topSellerBonus + (emp.shifts.reviewsBonus || 0) + (emp.shifts.management || 0) - (emp.shifts.inventoryDeduction || 0) - emp.advances;
+                    });
+
+                    setProcessedData({
+                        employees: employeeData,
+                        bestDay,
+                        topSeller,
+                        month: monthSheet
+                    });
+                    setErrors([]);
+                } catch (err) {
+                    setErrors([`Ошибка при обработке данных: ${err.message}`]);
+                    console.error(err);
+                }
+            };
+
+            const handleNameMappingChange = (shortName, fullName) => {
+                setNameMapping(prev => ({
+                    ...prev,
+                    [shortName]: fullName
+                }));
+            };
+
+            const exportData = () => {
+                if (!processedData) {
+                    setErrors(['Сначала рассчитайте зарплаты']);
+                    return;
+                }
+                try {
+                    const exportPayload = {
+                        month: processedData.month,
+                        exportDate: new Date().toISOString(),
+                        employees: processedData.employees,
+                        bestDay: processedData.bestDay,
+                        topSeller: processedData.topSeller
+                    };
+
+                    const jsonStr = JSON.stringify(exportPayload, null, 2);
+                    const blob = new Blob([jsonStr], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+
+                    const monthName = processedData.month.replace(/_/g, '_');
+                    link.href = url;
+                    link.download = `salary-data-${monthName}.json`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                } catch (err) {
+                    setErrors([`Ошибка при экспорте: ${err.message}`]);
+                }
+            };
+
+            return (
+                <div className="min-h-screen bg-gray-950">
+                    {/* Header */}
+                    <div className="glass-effect border-b border-gray-800 sticky top-0 z-50">
+                        <div className="max-w-7xl mx-auto px-4 py-6">
+                            <h1 className="text-3xl font-bold gradient-text mb-2">
+                                💼 Панель Администратора - Калькулятор Зарплаты
+                            </h1>
+                            <p className="text-sm text-gray-400">Загрузка данных, обработка и экспорт для сотрудников</p>
+                        </div>
+                    </div>
+
+                    {/* Alerts */}
+                    {errors.length > 0 && (
+                        <div className="max-w-7xl mx-auto px-4 mt-4">
+                            {errors.map((err, idx) => (
+                                <div key={idx} className="bg-red-900/30 border border-red-700 text-red-100 px-4 py-3 rounded-lg mb-2">
+                                    ⚠️ {err}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    {warnings.length > 0 && (
+                        <div className="max-w-7xl mx-auto px-4 mt-4">
+                            {warnings.map((warn, idx) => (
+                                <div key={idx} className="bg-yellow-900/30 border border-yellow-700 text-yellow-100 px-4 py-3 rounded-lg mb-2">
+                                    ℹ️ {warn}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <div className="max-w-7xl mx-auto px-4 py-6">
+                        <div className="space-y-6">
+                            {/* Google Sheets Connection Status */}
+                            <div className="glass-effect rounded-lg p-4 border border-purple-500/50 flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <span className={`status-dot ${sheetsConnected ? 'connected' : 'disconnected'}`}></span>
+                                    <span className="font-medium">
+                                        {sheetsLoading ? '⏳ Подключение к Google Sheets...' : sheetsConnected ? '📡 Google Sheets подключено' : '❌ Нет подключения к Google Sheets'}
+                                    </span>
+                                </div>
+                                {!sheetsConnected && !sheetsLoading && (
+                                    <button
+                                        onClick={testSheetsConnection}
+                                        className="btn-primary px-4 py-2 rounded-lg text-white text-sm font-bold"
+                                    >
+                                        Повторить
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Saved Months + Load from DB */}
+                            {savedMonths.length > 0 && (
+                                <div className="glass-effect rounded-lg p-4">
+                                    <h3 className="text-sm font-bold mb-3">📂 Данные в базе Google Sheets:</h3>
+                                    <div className="flex flex-wrap gap-2 mb-3">
+                                        {savedMonths.map(month => (
+                                            <button
+                                                key={month}
+                                                onClick={async () => {
+                                                    setWarnings([`⏳ Загрузка данных за ${month}...`]);
+                                                    try {
+                                                        const resp = await fetch(`${appsScriptUrl}?action=getSalaryData&month=${encodeURIComponent(month)}`, { method: 'GET', mode: 'cors' });
+                                                        const result = await resp.json();
+                                                        if (result.success && result.data && result.data.employees) {
+                                                            const emps = Object.values(result.data.employees).map(emp => ({
+                                                                ...emp,
+                                                                bonusByCategory: emp.bonusByCategory || {},
+                                                                sales: [],
+                                                                dailySales: emp.dailySales || {},
+                                                                shifts: emp.shifts || { shiftCount: 0, dailyPay: [], storeSchedule: [], totalShiftPay: emp.shiftPay || 0 }
+                                                            }));
+                                                            setProcessedData({
+                                                                month,
+                                                                employees: emps,
+                                                                bestDay: result.data.bestDay || {},
+                                                                topSeller: result.data.topSeller || {},
+                                                                totalRevenue: emps.reduce((s, e) => s + (e.totalSales || 0), 0)
+                                                            });
+                                                            setLoadedFromDb(true);
+                                                            setWarnings([`✅ Загружено из базы: ${month}, ${emps.length} сотрудников`]);
+                                                            setErrors([]);
+                                                        } else {
+                                                            setErrors(['Ошибка загрузки данных из базы']);
+                                                        }
+                                                    } catch (err) {
+                                                        setErrors([`Ошибка: ${err.message}`]);
+                                                    }
+                                                }}
+                                                className="bg-green-900/30 border border-green-700 text-green-300 px-4 py-2 rounded text-sm hover:bg-green-800/50 transition cursor-pointer font-medium"
+                                            >
+                                                📥 {month}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <p className="text-xs text-gray-500">Нажмите на месяц, чтобы загрузить расчёт из базы без файлов</p>
+                                </div>
+                            )}
+
+                            {/* File Upload Section */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <FileUploadZone
+                                    label="📋 Транзакции (Продажи)"
+                                    file={transactionsFile}
+                                    onChange={handleTransactionsUpload}
+                                    description="Отчет по продажам .xlsx"
+                                />
+                                <FileUploadZone
+                                    label="📦 Каталог"
+                                    file={catalogFile}
+                                    onChange={handleCatalogUpload}
+                                    description="Каталог товаров .xlsx"
+                                />
+                                <FileUploadZone
+                                    label="📅 График Смен"
+                                    file={shiftsFile}
+                                    onChange={handleShiftsUpload}
+                                    description="График смен .xlsx"
+                                />
+                                <FileUploadZone
+                                    label="💵 Авансы"
+                                    file={advancesFile}
+                                    onChange={handleAdvancesUpload}
+                                    description="Таблица авансов .xlsx (опционально)"
+                                />
+                            </div>
+
+                            {/* Month Selector */}
+                            {availableMonths.length > 0 && (
+                                <div className="glass-effect rounded-lg p-4">
+                                    <label className="block text-sm font-medium mb-2">Выберите месяц:</label>
+                                    <select
+                                        value={monthSheet}
+                                        onChange={(e) => setMonthSheet(e.target.value)}
+                                        className="input-field w-full px-4 py-2 rounded-lg text-white focus:outline-none"
+                                    >
+                                        {availableMonths.map(month => (
+                                            <option key={month} value={month}>{month}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+
+                            {/* Name Mapping Editor */}
+                            <div className="glass-effect rounded-lg p-6">
+                                <h2 className="text-xl font-bold mb-4">👥 Соответствие Имён</h2>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full">
+                                        <thead>
+                                            <tr>
+                                                <th className="text-left px-4 py-2">Короткое Имя</th>
+                                                <th className="text-left px-4 py-2">Полное Имя</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {Object.entries(nameMapping).map(([short, full]) => (
+                                                <tr key={short}>
+                                                    <td className="px-4 py-2 border-b border-gray-800">{short}</td>
+                                                    <td className="px-4 py-2 border-b border-gray-800">
+                                                        <input
+                                                            type="text"
+                                                            value={full}
+                                                            onChange={(e) => handleNameMappingChange(short, e.target.value)}
+                                                            className="input-field w-full px-3 py-1 rounded text-white focus:outline-none"
+                                                        />
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            {/* Process & Save — only when working with files, not loaded from DB */}
+                            {!loadedFromDb && (
+                                <div className="space-y-4">
+                                    <button
+                                        onClick={processData}
+                                        className="btn-primary w-full px-6 py-3 rounded-lg text-white font-bold text-lg"
+                                    >
+                                        ✨ Рассчитать Зарплаты
+                                    </button>
+
+                                    {processedData && sheetsConnected && (
+                                        <button
+                                            onClick={saveToGoogleSheets}
+                                            disabled={savingToSheets}
+                                            className="btn-primary w-full px-6 py-3 rounded-lg text-white font-bold text-lg disabled:opacity-50"
+                                        >
+                                            {savingToSheets ? '⏳ Сохраняю...' : '💾 Сохранить в Google Sheets'}
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Dashboard */}
+                            {processedData && (
+                                <SalaryDashboard processedData={processedData} nameMapping={nameMapping} />
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Footer */}
+                    <div className="max-w-7xl mx-auto px-4 py-6">
+                        <div className="glass-effect rounded-lg p-4 text-center text-gray-400 text-sm">
+                            📊 Версия 3.0 | Администратор с Google Sheets синхронизацией
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const FileUploadZone = ({ label, file, onChange, description }) => {
+            return (
+                <div className="glass-effect rounded-lg p-6 border-2 border-dashed border-gray-700 hover:border-indigo-500 transition">
+                    <label className="cursor-pointer block">
+                        <input
+                            type="file"
+                            accept=".xlsx,.xls"
+                            onChange={onChange}
+                            className="hidden"
+                        />
+                        <div className="text-center">
+                            <div className="text-3xl mb-2">{label.split(' ')[0]}</div>
+                            <div className="font-medium mb-1">{label.split(' ').slice(1).join(' ')}</div>
+                            <div className="text-sm text-gray-400">{description}</div>
+                            {file && (
+                                <div className="mt-2 text-green-400 text-sm">
+                                    ✓ {file.name}
+                                </div>
+                            )}
+                        </div>
+                    </label>
+                </div>
+            );
+        };
+
+        const SalaryDashboard = ({ processedData, nameMapping }) => {
+            const employees = Object.values(processedData.employees).sort((a, b) =>
+                b.totalSales - a.totalSales
+            );
+
+            return (
+                <div className="space-y-6">
+                    {/* Award Cards — above the table */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {processedData.bestDay?.employee && (
+                            <div className="glass-effect rounded-lg p-5 card-hover pulse-highlight border border-yellow-700/50">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <div className="text-4xl">🏆</div>
+                                    <div>
+                                        <div className="text-sm text-gray-400">Лучший день месяца</div>
+                                        <div className="text-xl font-bold text-yellow-400">{processedData.bestDay.employee}</div>
+                                    </div>
+                                </div>
+                                <div className="text-lg font-bold">{(processedData.bestDay.amount || 0).toFixed(2)} ГЕЛ за день</div>
+                                <div className="text-xs text-gray-500">{processedData.bestDay.date || ''}</div>
+                                <div className="text-sm text-green-400 font-bold mt-2">+100 ГЕЛ бонус</div>
+                            </div>
+                        )}
+                        {processedData.topSeller?.employee && (
+                            <div className="glass-effect rounded-lg p-5 card-hover border border-green-700/50 bg-green-900/10">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <div className="text-4xl">👑</div>
+                                    <div>
+                                        <div className="text-sm text-gray-400">Топ продавец месяца</div>
+                                        <div className="text-xl font-bold text-green-400">{processedData.topSeller.employee}</div>
+                                    </div>
+                                </div>
+                                <div className="text-lg font-bold">{(processedData.topSeller.amount || 0).toFixed(2)} ГЕЛ продаж</div>
+                                <div className="text-sm text-green-400 font-bold mt-2">+{((processedData.topSeller.amount || 0) * 0.02).toFixed(2)} ГЕЛ бонус (2%)</div>
+                            </div>
+                        )}
+                        <div className="glass-effect rounded-lg p-5 card-hover">
+                            <div className="flex items-center gap-3 mb-2">
+                                <div className="text-4xl">📈</div>
+                                <div>
+                                    <div className="text-sm text-gray-400">Месяц: {processedData.month}</div>
+                                    <div className="text-xl font-bold">{Object.keys(processedData.employees).length} сотрудников</div>
+                                </div>
+                            </div>
+                            <div className="text-lg font-bold">Выручка: {(processedData.totalRevenue || 0).toFixed(2)} ГЕЛ</div>
+                        </div>
+                    </div>
+
+                    <div className="glass-effect rounded-lg p-6">
+                        <h2 className="text-2xl font-bold mb-4">📊 Сводка по Зарплатам</h2>
+                        <div className="overflow-x-auto">
+                            <table className="w-full">
+                                <thead>
+                                    <tr>
+                                        <th className="text-left px-3 py-2">Имя</th>
+                                        <th className="text-right px-3 py-2">Смены</th>
+                                        <th className="text-right px-3 py-2">Оклад (ГЕЛ)</th>
+                                        <th className="text-right px-3 py-2">Продажи (ГЕЛ)</th>
+                                        <th className="text-right px-3 py-2">LED</th>
+                                        <th className="text-right px-3 py-2">CBD Gorilla</th>
+                                        <th className="text-right px-3 py-2">CBD Global</th>
+                                        <th className="text-right px-3 py-2">CBD Other</th>
+                                        <th className="text-right px-3 py-2">Бонус продажи</th>
+                                        <th className="text-right px-3 py-2">🏆 Луч. день</th>
+                                        <th className="text-right px-3 py-2">👑 Топ прод.</th>
+                                        <th className="text-right px-3 py-2">Авансы</th>
+                                        <th className="text-right px-3 py-2">К выплате (ГЕЛ)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {employees.map((emp, idx) => (
+                                        <tr
+                                            key={idx}
+                                            className={`${
+                                                emp.shortName === processedData.bestDay.employee ? 'pulse-highlight' : ''
+                                            } ${
+                                                emp.shortName === processedData.topSeller.employee ? 'bg-green-900/20' : ''
+                                            }`}
+                                        >
+                                            <td className="px-3 py-2 font-medium">
+                                                {emp.shortName}
+                                                {emp.shortName === processedData.bestDay.employee && ' 🏆'}
+                                                {emp.shortName === processedData.topSeller.employee && ' 👑'}
+                                            </td>
+                                            <td className="text-right px-3 py-2">{emp.shifts.shiftCount || 0}</td>
+                                            <td className="text-right px-3 py-2">{emp.shiftPay.toFixed(2)}</td>
+                                            <td className="text-right px-3 py-2 font-medium">{emp.totalSales.toFixed(2)}</td>
+                                            <td className="text-right px-3 py-2 text-sm">
+                                                {(emp.bonusByCategory['LED - Grow Lighting']?.bonus || 0).toFixed(2)}
+                                            </td>
+                                            <td className="text-right px-3 py-2 text-sm">
+                                                {(emp.bonusByCategory['CBD > CBD Gorilla']?.bonus || 0).toFixed(2)}
+                                            </td>
+                                            <td className="text-right px-3 py-2 text-sm">
+                                                {(emp.bonusByCategory['CBD > CBD Global']?.bonus || 0).toFixed(2)}
+                                            </td>
+                                            <td className="text-right px-3 py-2 text-sm">
+                                                {(emp.bonusByCategory['CBD > CBD Other']?.bonus || 0).toFixed(2)}
+                                            </td>
+                                            <td className="text-right px-3 py-2 font-medium text-yellow-400">
+                                                {(emp.totalBonus || 0).toFixed(2)}
+                                            </td>
+                                            <td className="text-right px-3 py-2 font-medium">
+                                                {(emp.bestDayBonus || 0) > 0
+                                                    ? <span className="text-yellow-400">+{(emp.bestDayBonus).toFixed(0)}</span>
+                                                    : <span className="text-gray-600">—</span>
+                                                }
+                                            </td>
+                                            <td className="text-right px-3 py-2 font-medium">
+                                                {(emp.topSellerBonus || 0) > 0
+                                                    ? <span className="text-green-400">+{(emp.topSellerBonus).toFixed(2)}</span>
+                                                    : <span className="text-gray-600">—</span>
+                                                }
+                                            </td>
+                                            <td className="text-right px-3 py-2 text-red-400">
+                                                {emp.advances.toFixed(2)}
+                                            </td>
+                                            <td className="text-right px-3 py-2 font-bold text-green-400">
+                                                {emp.totalToPay.toFixed(2)}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                                <tfoot>
+                                    {(() => {
+                                        const totals = employees.reduce((acc, emp) => ({
+                                            shifts: acc.shifts + (emp.shifts.shiftCount || 0),
+                                            shiftPay: acc.shiftPay + emp.shiftPay,
+                                            sales: acc.sales + emp.totalSales,
+                                            led: acc.led + (emp.bonusByCategory['LED - Grow Lighting']?.bonus || 0),
+                                            gorilla: acc.gorilla + (emp.bonusByCategory['CBD > CBD Gorilla']?.bonus || 0),
+                                            global: acc.global + (emp.bonusByCategory['CBD > CBD Global']?.bonus || 0),
+                                            other: acc.other + (emp.bonusByCategory['CBD > CBD Other']?.bonus || 0),
+                                            salesBonus: acc.salesBonus + (emp.totalBonus || 0),
+                                            bestDay: acc.bestDay + (emp.bestDayBonus || 0),
+                                            topSeller: acc.topSeller + (emp.topSellerBonus || 0),
+                                            advances: acc.advances + emp.advances,
+                                            toPay: acc.toPay + emp.totalToPay
+                                        }), { shifts: 0, shiftPay: 0, sales: 0, led: 0, gorilla: 0, global: 0, other: 0, salesBonus: 0, bestDay: 0, topSeller: 0, advances: 0, toPay: 0 });
+                                        return (
+                                            <tr className="border-t-2 border-gray-500 bg-gray-800/50 font-bold">
+                                                <td className="px-3 py-2">ИТОГО</td>
+                                                <td className="text-right px-3 py-2">{totals.shifts}</td>
+                                                <td className="text-right px-3 py-2">{totals.shiftPay.toFixed(2)}</td>
+                                                <td className="text-right px-3 py-2">{totals.sales.toFixed(2)}</td>
+                                                <td className="text-right px-3 py-2 text-sm">{totals.led.toFixed(2)}</td>
+                                                <td className="text-right px-3 py-2 text-sm">{totals.gorilla.toFixed(2)}</td>
+                                                <td className="text-right px-3 py-2 text-sm">{totals.global.toFixed(2)}</td>
+                                                <td className="text-right px-3 py-2 text-sm">{totals.other.toFixed(2)}</td>
+                                                <td className="text-right px-3 py-2 text-yellow-400">{totals.salesBonus.toFixed(2)}</td>
+                                                <td className="text-right px-3 py-2 text-yellow-400">{totals.bestDay.toFixed(0)}</td>
+                                                <td className="text-right px-3 py-2 text-green-400">{totals.topSeller.toFixed(2)}</td>
+                                                <td className="text-right px-3 py-2 text-red-400">{totals.advances.toFixed(2)}</td>
+                                                <td className="text-right px-3 py-2 text-green-400">{totals.toPay.toFixed(2)}</td>
+                                            </tr>
+                                        );
+                                    })()}
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+
+                    {/* Summary cards moved above the table */}
+                </div>
+            );
+        };
+
+        ReactDOM.render(<AdminApp />, document.getElementById('root'));
+    </script>
+</body>
+</html>
