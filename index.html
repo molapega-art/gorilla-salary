@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>💼 Мой Расчет Зарплаты</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * { scrollbar-width: thin; scrollbar-color: #4f46e5 #1f2937; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #4f46e5; border-radius: 4px; }
+        .glass-effect {
+            background: rgba(17, 24, 39, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(79, 70, 229, 0.2);
+        }
+        .gradient-text {
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .card-hover { transition: all 0.3s ease; }
+        .card-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 25px rgba(79, 70, 229, 0.2); }
+        .pulse-highlight { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+        .btn-primary {
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            transition: all 0.3s ease;
+        }
+        .btn-primary:hover { box-shadow: 0 8px 16px rgba(79, 70, 229, 0.4); transform: translateY(-2px); }
+        .input-field {
+            background: rgba(31, 41, 55, 0.6);
+            border: 1px solid rgba(79, 70, 229, 0.3);
+            transition: all 0.3s ease;
+        }
+        .input-field:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1); }
+        table { font-size: 0.875rem; }
+        th { background: rgba(79, 70, 229, 0.1); border-bottom: 2px solid rgba(79, 70, 229, 0.3); }
+        tr:hover { background: rgba(79, 70, 229, 0.05); }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // ====== НАСТРОЙКА: URL Apps Script ======
+        const API_URL = 'https://script.google.com/macros/s/AKfycbwc5_r_FHiVrSiYxS2hUtkLgul8JV1lKyKmcQAkZahgyP60wcBvwMeMU5lu2AUoz1hh/exec';
+
+        const EmployeeApp = () => {
+            const [months, setMonths] = useState([]);
+            const [employees, setEmployees] = useState([]);
+            const [selectedMonth, setSelectedMonth] = useState('');
+            const [pendingEmployee, setPendingEmployee] = useState('');
+            const [selectedEmployee, setSelectedEmployee] = useState('');
+            const [salaryData, setSalaryData] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [loadingData, setLoadingData] = useState(false);
+            const [error, setError] = useState('');
+
+            useEffect(() => {
+                loadMonths();
+            }, []);
+
+            const loadMonths = async () => {
+                setLoading(true);
+                setError('');
+                try {
+                    const response = await fetch(`${API_URL}?action=getMonths`, { method: 'GET', mode: 'cors' });
+                    const result = await response.json();
+                    if (result.success && result.data && result.data.length > 0) {
+                        setMonths(result.data);
+                        const defaultMonth = result.data[0];
+                        setSelectedMonth(defaultMonth);
+                        await loadEmployees(defaultMonth);
+                    } else {
+                        setError('Нет данных о зарплатах. Обратитесь к администратору.');
+                    }
+                } catch (err) {
+                    setError('⚠️ Ошибка подключения к серверу. Попробуйте позже.');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const loadEmployees = async (month) => {
+                try {
+                    const response = await fetch(`${API_URL}?action=getSalaryData&month=${encodeURIComponent(month)}`, { method: 'GET', mode: 'cors' });
+                    const result = await response.json();
+                    if (result.success && result.data && result.data.employees) {
+                        const empList = Object.keys(result.data.employees).sort();
+                        setEmployees(empList);
+                        setPendingEmployee('');
+                        setSelectedEmployee('');
+                        setSalaryData(null);
+                    }
+                } catch (err) {
+                    console.error('Failed to load employees:', err);
+                }
+            };
+
+            const handleMonthChange = async (month) => {
+                setSelectedMonth(month);
+                setSalaryData(null);
+                setSelectedEmployee('');
+                setPendingEmployee('');
+                await loadEmployees(month);
+            };
+
+            const handleLoadData = async () => {
+                if (!pendingEmployee) return;
+                setLoadingData(true);
+                setError('');
+                try {
+                    const response = await fetch(`${API_URL}?action=getEmployeeData&month=${encodeURIComponent(selectedMonth)}&name=${encodeURIComponent(pendingEmployee)}`, { method: 'GET', mode: 'cors' });
+                    const result = await response.json();
+                    if (result.success && result.data) {
+                        setSalaryData(result.data);
+                        setSelectedEmployee(pendingEmployee);
+                    } else {
+                        setError('❌ Данные не найдены');
+                    }
+                } catch (err) {
+                    setError(`⚠️ Ошибка загрузки: ${err.message}`);
+                } finally {
+                    setLoadingData(false);
+                }
+            };
+
+            return (
+                <div className="min-h-screen bg-gray-950">
+                    {/* Header */}
+                    <div className="glass-effect border-b border-gray-800 sticky top-0 z-50">
+                        <div className="max-w-6xl mx-auto px-4 py-4">
+                            <h1 className="text-2xl font-bold gradient-text">💼 Мой Расчет Зарплаты</h1>
+                            <p className="text-xs text-gray-500 mt-1">Персональный портал</p>
+                        </div>
+                    </div>
+
+                    {/* Error */}
+                    {error && (
+                        <div className="max-w-6xl mx-auto px-4 mt-4">
+                            <div className="bg-red-900/30 border border-red-700 text-red-100 px-4 py-3 rounded-lg">
+                                {error}
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="max-w-6xl mx-auto px-4 py-6">
+                        {/* Selector Bar */}
+                        <div className="glass-effect rounded-lg p-6 mb-6">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                                <div>
+                                    <label className="block text-sm text-gray-400 mb-2">📅 Месяц</label>
+                                    <select
+                                        value={selectedMonth}
+                                        onChange={(e) => handleMonthChange(e.target.value)}
+                                        className="input-field w-full px-4 py-3 rounded-lg text-white focus:outline-none"
+                                        disabled={months.length === 0}
+                                    >
+                                        {months.length === 0 && <option value="">Загрузка...</option>}
+                                        {months.map(month => (
+                                            <option key={month} value={month}>{month}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm text-gray-400 mb-2">👤 Ваше имя</label>
+                                    <select
+                                        value={pendingEmployee}
+                                        onChange={(e) => setPendingEmployee(e.target.value)}
+                                        className="input-field w-full px-4 py-3 rounded-lg text-white focus:outline-none"
+                                        disabled={employees.length === 0}
+                                    >
+                                        <option value="">-- Выберите --</option>
+                                        {employees.map(emp => (
+                                            <option key={emp} value={emp}>{emp}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <button
+                                        onClick={handleLoadData}
+                                        disabled={!pendingEmployee || loadingData}
+                                        className="btn-primary w-full px-6 py-3 rounded-lg text-white font-bold disabled:opacity-40"
+                                    >
+                                        {loadingData ? '⏳ Загрузка...' : '✅ Показать расчёт'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Loading initial */}
+                        {loading && months.length === 0 && (
+                            <div className="text-center py-20 text-gray-400">
+                                <div className="text-5xl mb-4 animate-spin inline-block">⏳</div>
+                                <div className="text-lg">Загрузка данных...</div>
+                            </div>
+                        )}
+
+                        {/* Prompt */}
+                        {!loading && !salaryData && !loadingData && employees.length > 0 && (
+                            <div className="text-center py-20 text-gray-500">
+                                <div className="text-6xl mb-4">👆</div>
+                                <div className="text-lg">Выберите ваше имя и нажмите «Показать расчёт»</div>
+                            </div>
+                        )}
+
+                        {/* Loading employee data */}
+                        {loadingData && (
+                            <div className="text-center py-20 text-gray-400">
+                                <div className="text-5xl mb-4 animate-spin inline-block">⏳</div>
+                                <div className="text-lg">Загружаю данные для {pendingEmployee}...</div>
+                            </div>
+                        )}
+
+                        {/* Dashboard */}
+                        {salaryData && !loadingData && <EmployeeDetail
+                            salaryData={salaryData}
+                            selectedEmployee={selectedEmployee}
+                            selectedMonth={selectedMonth}
+                        />}
+                    </div>
+                </div>
+            );
+        };
+
+        const EmployeeDetail = ({ salaryData, selectedEmployee, selectedMonth }) => {
+            const data = salaryData.data || salaryData;
+            const bestDay = salaryData.bestDay;
+            const topSeller = salaryData.topSeller;
+
+            if (!data) {
+                return (
+                    <div className="glass-effect rounded-lg p-6 text-center">
+                        <p className="text-red-400">❌ Данные не найдены</p>
+                    </div>
+                );
+            }
+
+            const isBestDay = (data.bestDayBonus || 0) > 0;
+            const isTopSeller = (data.topSellerBonus || 0) > 0;
+            const dates = Object.keys(data.dailySales || {}).sort((a, b) => new Date(a) - new Date(b));
+
+            // Определяем лучший день по максимальной сумме продаж
+            let bestDayDate = '';
+            let bestDayAmount = 0;
+            dates.forEach(d => {
+                const val = data.dailySales?.[d] || 0;
+                if (val > bestDayAmount) {
+                    bestDayAmount = val;
+                    bestDayDate = d;
+                }
+            });
+
+            const formatDate = (dateStr) => {
+                try {
+                    const d = new Date(dateStr);
+                    if (isNaN(d.getTime())) return dateStr;
+                    return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+                } catch { return dateStr; }
+            };
+
+            return (
+                <div className="space-y-6">
+                    {/* Name & Badges */}
+                    <div className="glass-effect rounded-lg p-4 flex items-center justify-between">
+                        <div>
+                            <h2 className="text-2xl font-bold">
+                                👤 {selectedEmployee}
+                                {isBestDay && ' 🏆'}
+                                {isTopSeller && ' 👑'}
+                            </h2>
+                            <p className="text-gray-400 text-sm">📅 {selectedMonth}</p>
+                        </div>
+                    </div>
+
+                    {/* Main Stats */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="glass-effect rounded-lg p-4 card-hover">
+                            <div className="text-sm text-gray-400 mb-1">🕐 Оклад</div>
+                            <div className="text-2xl font-bold">{(data.shiftPay || 0).toFixed(2)}</div>
+                            <div className="text-xs text-gray-500 mt-1">{data.shifts?.shiftCount || 0} смен</div>
+                        </div>
+                        <div className="glass-effect rounded-lg p-4 card-hover">
+                            <div className="text-sm text-gray-400 mb-1">💰 Продажи</div>
+                            <div className="text-2xl font-bold text-blue-400">{(data.totalSales || 0).toFixed(2)}</div>
+                            <div className="text-xs text-gray-500 mt-1">ГЕЛ</div>
+                        </div>
+                        <div className="glass-effect rounded-lg p-4 card-hover">
+                            <div className="text-sm text-gray-400 mb-1">⭐ Бонусы</div>
+                            <div className="text-2xl font-bold text-yellow-400">
+                                {((data.totalBonus || 0) + (data.bestDayBonus || 0) + (data.topSellerBonus || 0)).toFixed(2)}
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1">ГЕЛ</div>
+                        </div>
+                        <div className="glass-effect rounded-lg p-4 card-hover bg-green-900/30 border border-green-700/50">
+                            <div className="text-sm text-gray-400 mb-1">✅ Начислено</div>
+                            <div className="text-2xl font-bold text-green-400">{((data.totalToPay || 0) + (data.advances || 0)).toFixed(2)}</div>
+                            <div className="text-xs text-gray-500 mt-1">ГЕЛ</div>
+                        </div>
+                    </div>
+
+                    {/* Special Bonuses — show if employee has bestDayBonus or topSellerBonus > 0 */}
+                    {((data.bestDayBonus || 0) > 0 || (data.topSellerBonus || 0) > 0) && (
+                        <div className="glass-effect rounded-lg p-6">
+                            <h3 className="text-xl font-bold mb-4">🎁 Специальные Бонусы</h3>
+                            <div className="space-y-3">
+                                {(data.bestDayBonus || 0) > 0 && (
+                                    <div className="bg-yellow-900/20 border border-yellow-700 rounded-lg p-4 flex items-center justify-between pulse-highlight">
+                                        <div>
+                                            <div className="font-bold text-yellow-400">🏆 Лучший день месяца</div>
+                                            <div className="text-sm text-gray-400">
+                                                {bestDayDate ? `${formatDate(bestDayDate)}: ${bestDayAmount.toFixed(2)} ГЕЛ` : 'Поздравляем!'}
+                                            </div>
+                                        </div>
+                                        <div className="text-2xl font-bold text-yellow-400">+{(data.bestDayBonus || 0).toFixed(0)} ГЕЛ</div>
+                                    </div>
+                                )}
+                                {(data.topSellerBonus || 0) > 0 && (
+                                    <div className="bg-green-900/20 border border-green-700 rounded-lg p-4 flex items-center justify-between">
+                                        <div>
+                                            <div className="font-bold text-green-400">👑 Топ продавец месяца</div>
+                                            <div className="text-sm text-gray-400">
+                                                {topSeller?.amount ? `Всего продаж: ${topSeller.amount.toFixed(2)} ГЕЛ` : 'Поздравляем!'}
+                                            </div>
+                                        </div>
+                                        <div className="text-2xl font-bold text-green-400">+{(data.topSellerBonus || 0).toFixed(2)} ГЕЛ</div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Shift Schedule */}
+                    {data.shifts?.storeSchedule && data.shifts.storeSchedule.length > 0 && (
+                        <div className="glass-effect rounded-lg p-6">
+                            <h3 className="text-xl font-bold mb-4">🏪 График Смен</h3>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr>
+                                            <th className="text-left px-3 py-2">📅 Дата</th>
+                                            <th className="text-left px-3 py-2">🏪 Магазин</th>
+                                            <th className="text-right px-3 py-2">💵 Оплата</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {data.shifts.storeSchedule.map((shift, idx) => {
+                                            const pay = shift.pay || data.shifts.dailyPay?.[idx] || data.shifts.dailyPay?.[shift.dayIndex] || 0;
+                                            const dateStr = shift.date
+                                                ? (shift.date.includes('T') || shift.date.includes('-')
+                                                    ? new Date(shift.date).toLocaleDateString('ru-RU')
+                                                    : shift.date)
+                                                : `День ${shift.dayIndex + 1}`;
+                                            return pay > 0 ? (
+                                                <tr key={idx}>
+                                                    <td className="px-3 py-1 border-b border-gray-800">{dateStr}</td>
+                                                    <td className="px-3 py-1 border-b border-gray-800">{shift.store}</td>
+                                                    <td className="text-right px-3 py-1 border-b border-gray-800 font-medium">{pay} ГЕЛ</td>
+                                                </tr>
+                                            ) : null;
+                                        })}
+                                    </tbody>
+                                    <tfoot>
+                                        <tr className="font-bold border-t-2 border-gray-500">
+                                            <td className="px-3 py-2" colSpan="2">Итого за смены:</td>
+                                            <td className="text-right px-3 py-2 text-green-400">{(data.shiftPay || 0).toFixed(2)} ГЕЛ</td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Sales by Category */}
+                    {Object.entries(data.bonusByCategory || {}).some(([, d]) => (d?.amount || 0) > 0 || (d?.bonus || 0) > 0) && (
+                        <div className="glass-effect rounded-lg p-6">
+                            <h3 className="text-xl font-bold mb-4">📊 Продажи по Категориям</h3>
+                            <div className="space-y-3">
+                                {Object.entries(data.bonusByCategory || {})
+                                    .filter(([cat, d]) => (d?.amount || 0) > 0 || (d?.bonus || 0) > 0)
+                                    .sort(([, a], [, b]) => (b?.amount || 0) - (a?.amount || 0))
+                                    .map(([category, catData]) => (
+                                        <div key={category} className="bg-gray-800/50 rounded-lg p-4">
+                                            <div className="flex justify-between items-center mb-2">
+                                                <div className="font-medium">{category}</div>
+                                                <div className="text-sm text-gray-400">{((catData?.rate || 0) * 100).toFixed(0)}%</div>
+                                            </div>
+                                            <div className="flex justify-between items-center mb-2">
+                                                <div className="text-sm text-gray-400">💰 {(catData?.amount || 0).toFixed(2)} ГЕЛ</div>
+                                                <div className="font-bold text-green-400">+{(catData?.bonus || 0).toFixed(2)} ГЕЛ</div>
+                                            </div>
+                                            <div className="bg-gray-900 h-2 rounded-full overflow-hidden">
+                                                <div
+                                                    className="bg-indigo-600 h-full"
+                                                    style={{ width: `${((catData?.amount || 0) / (data.totalSales || 1) * 100) || 0}%` }}
+                                                />
+                                            </div>
+                                        </div>
+                                    ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Daily Sales - sorted by date 1..31 */}
+                    {dates.length > 0 && (
+                        <div className="glass-effect rounded-lg p-6">
+                            <h3 className="text-xl font-bold mb-4">📈 Дневные Продажи</h3>
+                            <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-7 gap-3">
+                                {dates.map(date => {
+                                    const isBest = isBestDay && date === bestDayDate;
+                                    return (
+                                        <div
+                                            key={date}
+                                            className={`rounded-lg p-3 ${
+                                                isBest ? 'bg-yellow-900/30 border-2 border-yellow-500 pulse-highlight' : 'bg-gray-800/50'
+                                            }`}
+                                        >
+                                            <div className="text-xs text-gray-400">{formatDate(date)}</div>
+                                            <div className="font-bold text-lg">{(data.dailySales?.[date] || 0).toFixed(0)}</div>
+                                            {isBest && <div className="text-xs text-yellow-400 mt-1">🏆</div>}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Advances */}
+                    {(data.advances || 0) > 0 && (
+                        <div className="glass-effect rounded-lg p-6 border border-red-700/50">
+                            <h3 className="text-xl font-bold mb-4">💸 Авансы</h3>
+                            <div className="text-lg">
+                                <span className="text-gray-400">Получено авансов:</span>
+                                <span className="float-right font-bold text-red-400">-{(data.advances || 0).toFixed(2)} ГЕЛ</span>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Final Calculation */}
+                    <div className="glass-effect rounded-lg p-6 border-2 border-indigo-500">
+                        <h3 className="text-2xl font-bold mb-6">💰 Итоговый расчет</h3>
+                        <div className="space-y-2 text-lg">
+                            <div className="flex justify-between">
+                                <span>🕐 Оклад за смены</span>
+                                <span>{(data.shiftPay || 0).toFixed(2)} ГЕЛ</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span>⭐ Бонусы за продажи</span>
+                                <span className="text-yellow-400">+{(data.totalBonus || 0).toFixed(2)} ГЕЛ</span>
+                            </div>
+                            {(data.bestDayBonus || 0) > 0 && (
+                                <div className="flex justify-between">
+                                    <span>🏆 Бонус «Лучший день»</span>
+                                    <span className="text-yellow-400">+{(data.bestDayBonus || 0).toFixed(2)} ГЕЛ</span>
+                                </div>
+                            )}
+                            {(data.topSellerBonus || 0) > 0 && (
+                                <div className="flex justify-between">
+                                    <span>👑 Бонус «Топ продавец» (2%)</span>
+                                    <span className="text-yellow-400">+{(data.topSellerBonus || 0).toFixed(2)} ГЕЛ</span>
+                                </div>
+                            )}
+                            {(data.shifts?.reviewsBonus || 0) > 0 && (
+                                <div className="flex justify-between">
+                                    <span>📝 Бонус за отзывы</span>
+                                    <span className="text-yellow-400">+{(data.shifts.reviewsBonus || 0).toFixed(2)} ГЕЛ</span>
+                                </div>
+                            )}
+                            {(data.shifts?.management || 0) > 0 && (
+                                <div className="flex justify-between">
+                                    <span>📋 Управление</span>
+                                    <span className="text-yellow-400">+{(data.shifts.management || 0).toFixed(2)} ГЕЛ</span>
+                                </div>
+                            )}
+                            {(data.advances || 0) > 0 && (
+                                <div className="flex justify-between border-t border-gray-700 pt-2 mt-2">
+                                    <span>💸 Минус авансы</span>
+                                    <span className="text-red-400">-{(data.advances || 0).toFixed(2)} ГЕЛ</span>
+                                </div>
+                            )}
+                            {(data.shifts?.inventoryDeduction || 0) > 0 && (
+                                <div className="flex justify-between">
+                                    <span>📦 Вычет инвентаризация</span>
+                                    <span className="text-red-400">-{(data.shifts.inventoryDeduction || 0).toFixed(2)} ГЕЛ</span>
+                                </div>
+                            )}
+                            <div className="flex justify-between text-xl font-bold border-t-2 border-indigo-500 pt-3 mt-3 text-green-400">
+                                <span>✅ ИТОГО К ВЫПЛАТЕ</span>
+                                <span>{(data.totalToPay || 0).toFixed(2)} ГЕЛ</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Recommendations */}
+                    <div className="glass-effect rounded-lg p-6">
+                        <h3 className="text-xl font-bold mb-4">💡 Рекомендации на следующий месяц</h3>
+                        <ul className="space-y-3 text-gray-300">
+                            {(() => {
+                                const recs = [];
+                                const ledSales = data.bonusByCategory?.['LED - Grow Lighting']?.amount || 0;
+                                const cbdGorilla = data.bonusByCategory?.['CBD > CBD Gorilla']?.amount || 0;
+                                const cbdGlobal = data.bonusByCategory?.['CBD > CBD Global']?.amount || 0;
+                                const totalSales = data.totalSales || 0;
+                                const avgDailySales = dates.length > 0 ? totalSales / dates.length : 0;
+
+                                if (cbdGorilla < cbdGlobal * 0.3 && cbdGlobal > 0) {
+                                    const potentialExtra = cbdGlobal * 0.07;
+                                    recs.push(`CBD Gorilla дает 14% бонуса против 7% у Global. Если перераспределить часть продаж в пользу Gorilla, бонус может вырасти примерно на ${potentialExtra.toFixed(0)} ГЕЛ.`);
+                                }
+
+                                if (ledSales === 0 && totalSales > 0) {
+                                    recs.push('LED оборудование дает 5% бонуса. Попробуйте предлагать LED клиентам — даже 500 ГЕЛ продаж принесут +25 ГЕЛ бонуса.');
+                                }
+
+                                if (data.shifts?.shiftCount && data.shifts.shiftCount < 18) {
+                                    const extra = 20 - data.shifts.shiftCount;
+                                    recs.push(`У вас ${data.shifts.shiftCount} смен. Ещё ${extra} смен добавят примерно ${extra * 50} ГЕЛ к окладу плюс возможности для продаж.`);
+                                }
+
+                                if (dates.length > 5) {
+                                    const dailyValues = dates.map(d => data.dailySales?.[d] || 0);
+                                    const maxDay = Math.max(...dailyValues);
+                                    const minDay = Math.min(...dailyValues.filter(v => v > 0));
+                                    if (maxDay > avgDailySales * 3 && minDay > 0) {
+                                        recs.push(`Разброс продаж: от ${minDay.toFixed(0)} до ${maxDay.toFixed(0)} ГЕЛ/день. Более стабильные результаты повысят шансы на бонус «Лучший день».`);
+                                    }
+                                }
+
+                                if (!isTopSeller && totalSales > 0 && topSeller?.amount) {
+                                    const gap = topSeller.amount - totalSales;
+                                    if (gap > 0 && gap < totalSales * 0.3) {
+                                        recs.push(`До «Топ продавец» не хватило ${gap.toFixed(0)} ГЕЛ — это ${(gap / 30).toFixed(0)} ГЕЛ/день дополнительно. Достижимая цель! 💪`);
+                                    }
+                                }
+
+                                if (recs.length === 0) {
+                                    recs.push('Отличная работа! 🔥 Сфокусируйтесь на CBD Gorilla (14% бонуса) для максимизации доходов.');
+                                }
+                                return recs;
+                            })().map((rec, idx) => (
+                                <li key={idx} className="bg-gray-800/50 rounded-lg p-3 text-sm leading-relaxed">
+                                    💡 {rec}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+
+                    {/* Footer */}
+                    <div className="glass-effect rounded-lg p-4 text-center text-gray-500 text-sm">
+                        💼 GM Salary System v3.0 | Google Sheets
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<EmployeeApp />, document.getElementById('root'));
+    </script>
+</body>
+</html>
