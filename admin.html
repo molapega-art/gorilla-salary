@@ -139,6 +139,11 @@
             const [savedMonths, setSavedMonths] = useState([]);
             const [savingToSheets, setSavingToSheets] = useState(false);
 
+            const [shiftMonths, setShiftMonths] = useState([]);
+            const [shiftsFromDb, setShiftsFromDb] = useState(null);
+            const [advancesFromDb, setAdvancesFromDb] = useState(null);
+            const [loadingShifts, setLoadingShifts] = useState(false);
+
             // Автоподключение при загрузке
             useEffect(() => {
                 (async () => {
@@ -148,10 +153,20 @@
                         const result = await response.json();
                         if (result.success) {
                             setSheetsConnected(true);
-                            // Загрузить сохранённые месяцы
+                            // Загрузить сохранённые месяцы расчётов
                             const mResp = await fetch(`${API_URL}?action=getMonths`, { method: 'GET', mode: 'cors' });
                             const mResult = await mResp.json();
                             if (mResult.success) setSavedMonths(mResult.data || []);
+
+                            // Загрузить доступные месяцы смен
+                            const smResp = await fetch(`${API_URL}?action=getShiftMonths`, { method: 'GET', mode: 'cors' });
+                            const smResult = await smResp.json();
+                            if (smResult.success && smResult.data) {
+                                setShiftMonths(smResult.data);
+                                if (smResult.data.length > 0) {
+                                    setMonthSheet(smResult.data[0]);
+                                }
+                            }
                         }
                     } catch (err) {
                         console.error('Auto-connect failed:', err);
@@ -160,6 +175,37 @@
                     }
                 })();
             }, []);
+
+            // Загрузка смен и авансов из Google Sheets
+            const loadShiftsFromDb = async (month) => {
+                setLoadingShifts(true);
+                setErrors([]);
+                try {
+                    // Загрузка смен
+                    const shiftResp = await fetch(`${API_URL}?action=getShiftsData&month=${encodeURIComponent(month)}`, { method: 'GET', mode: 'cors' });
+                    const shiftResult = await shiftResp.json();
+                    if (shiftResult.success && shiftResult.data) {
+                        setShiftsFromDb(shiftResult.data.employees);
+                        setMonthSheet(month);
+                    } else {
+                        setErrors([`Ошибка загрузки смен: ${shiftResult.message || 'unknown'}`]);
+                        return;
+                    }
+
+                    // Загрузка авансов
+                    const advResp = await fetch(`${API_URL}?action=getAdvances`, { method: 'GET', mode: 'cors' });
+                    const advResult = await advResp.json();
+                    if (advResult.success) {
+                        setAdvancesFromDb(advResult.data || []);
+                    }
+
+                    setWarnings([`✅ Смены за ${month} и авансы загружены из Google Sheets`]);
+                } catch (err) {
+                    setErrors([`Ошибка: ${err.message}`]);
+                } finally {
+                    setLoadingShifts(false);
+                }
+            };
 
             const parseExcelFile = (file) => {
                 return new Promise((resolve, reject) => {
@@ -467,14 +513,21 @@
 
             const processData = () => {
                 setLoadedFromDb(false);
-                if (!transactionsData || !catalogData || !shiftsData || !monthSheet) {
-                    setErrors(['Пожалуйста, загрузите все файлы и выберите месяц']);
+                const useDbShifts = !!shiftsFromDb;
+                if (!transactionsData || !catalogData || (!shiftsData && !useDbShifts) || !monthSheet) {
+                    setErrors(['Пожалуйста, загрузите отчёт продаж и каталог, и выберите месяц']);
                     return;
                 }
 
                 try {
-                    const sheet = shiftsData.Sheets[monthSheet];
-                    const shiftEmployees = extractShiftData(sheet);
+                    // Смены: из Google Sheets или из файла
+                    let shiftEmployees;
+                    if (shiftsFromDb) {
+                        shiftEmployees = shiftsFromDb;
+                    } else {
+                        const sheet = shiftsData.Sheets[monthSheet];
+                        shiftEmployees = extractShiftData(sheet);
+                    }
 
                     const catalogMap = {};
                     catalogData.forEach(item => {
@@ -581,9 +634,11 @@
                         employeeData[topSeller.employee].topSellerBonus = topSeller.amount * 0.02;
                     }
 
-                    if (advancesData) {
+                    // Авансы: из Google Sheets (приоритет) или из файла
+                    const advSource = advancesFromDb || advancesData;
+                    if (advSource) {
                         const advancesMap = {};
-                        advancesData.forEach(row => {
+                        advSource.forEach(row => {
                             const empName = String(row['Сотрудник'] || '').trim();
                             const month = String(row['Месяц (за который берем аванс)'] || '').trim();
                             if (month === monthSheet) {
@@ -756,7 +811,42 @@
                                 </div>
                             )}
 
-                            {/* File Upload Section */}
+                            {/* Shifts from Google Sheets */}
+                            {shiftMonths.length > 0 && (
+                                <div className="glass-effect rounded-lg p-6 border border-blue-500/30">
+                                    <h2 className="text-lg font-bold mb-3">📅 Смены и авансы (Google Sheets)</h2>
+                                    <p className="text-xs text-gray-400 mb-3">Загружаются автоматически из таблицы графика смен</p>
+                                    <div className="flex gap-3 items-end">
+                                        <div className="flex-1">
+                                            <label className="block text-sm font-medium mb-2">Выберите месяц:</label>
+                                            <select
+                                                value={monthSheet}
+                                                onChange={(e) => setMonthSheet(e.target.value)}
+                                                className="input-field w-full px-4 py-3 rounded-lg text-white focus:outline-none"
+                                            >
+                                                {shiftMonths.map(month => (
+                                                    <option key={month} value={month}>{month}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <button
+                                            onClick={() => loadShiftsFromDb(monthSheet)}
+                                            disabled={loadingShifts || !monthSheet}
+                                            className="btn-primary px-6 py-3 rounded-lg text-white font-bold disabled:opacity-40"
+                                        >
+                                            {loadingShifts ? '⏳ Загрузка...' : '📥 Загрузить смены'}
+                                        </button>
+                                    </div>
+                                    {shiftsFromDb && (
+                                        <div className="mt-3 text-sm text-green-400">
+                                            ✅ Смены загружены: {Object.keys(shiftsFromDb).length} сотрудников
+                                            {advancesFromDb && `, авансы: ${advancesFromDb.length} записей`}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* File Upload Section — only transactions and catalog */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <FileUploadZone
                                     label="📋 Транзакции (Продажи)"
@@ -770,35 +860,7 @@
                                     onChange={handleCatalogUpload}
                                     description="Каталог товаров .xlsx"
                                 />
-                                <FileUploadZone
-                                    label="📅 График Смен"
-                                    file={shiftsFile}
-                                    onChange={handleShiftsUpload}
-                                    description="График смен .xlsx"
-                                />
-                                <FileUploadZone
-                                    label="💵 Авансы"
-                                    file={advancesFile}
-                                    onChange={handleAdvancesUpload}
-                                    description="Таблица авансов .xlsx (опционально)"
-                                />
                             </div>
-
-                            {/* Month Selector */}
-                            {availableMonths.length > 0 && (
-                                <div className="glass-effect rounded-lg p-4">
-                                    <label className="block text-sm font-medium mb-2">Выберите месяц:</label>
-                                    <select
-                                        value={monthSheet}
-                                        onChange={(e) => setMonthSheet(e.target.value)}
-                                        className="input-field w-full px-4 py-2 rounded-lg text-white focus:outline-none"
-                                    >
-                                        {availableMonths.map(month => (
-                                            <option key={month} value={month}>{month}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            )}
 
                             {/* Name Mapping Editor */}
                             <div className="glass-effect rounded-lg p-6">
