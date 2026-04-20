@@ -195,11 +195,22 @@
                     // Загрузка авансов
                     const advResp = await fetch(`${API_URL}?action=getAdvances`, { method: 'GET', mode: 'cors' });
                     const advResult = await advResp.json();
-                    if (advResult.success) {
-                        setAdvancesFromDb(advResult.data || []);
+                    if (advResult.success && advResult.data) {
+                        const advData = advResult.data.advances || advResult.data;
+                        const debug = advResult.data.debug || {};
+                        setAdvancesFromDb(Array.isArray(advData) ? advData : []);
+                        console.log('=== ADVANCES DEBUG ===');
+                        console.log('Total rows:', debug.totalRows);
+                        console.log('Data rows:', debug.dataRows);
+                        console.log('Headers:', debug.headers);
+                        console.log('Month breakdown:', JSON.stringify(debug.monthBreakdown, null, 2));
+                        console.log('All advances:', advData);
+                        // Показать debug в warnings
+                        const monthInfo = debug.monthBreakdown ? Object.entries(debug.monthBreakdown).map(([k,v]) => `${k}: ${v.count} записей, сумма ${v.sum}`).join('; ') : '';
+                        setWarnings([`✅ Смены за ${month} загружены. Авансы: ${(Array.isArray(advData) ? advData : []).length} записей. Debug: ${monthInfo}`]);
+                    } else {
+                        setWarnings([`✅ Смены за ${month} загружены. Авансы: ошибка загрузки`]);
                     }
-
-                    setWarnings([`✅ Смены за ${month} и авансы загружены из Google Sheets`]);
                 } catch (err) {
                     setErrors([`Ошибка: ${err.message}`]);
                 } finally {
@@ -638,14 +649,40 @@
                     const advSource = advancesFromDb || advancesData;
                     if (advSource) {
                         const advancesMap = {};
+                        const normalizeMonth = (s) => String(s || '').trim().replace(/\s+/g, ' ');
+                        const targetMonth = normalizeMonth(monthSheet);
+                        let debugTotal = 0, debugMatched = 0, debugUnmatched = [];
+
                         advSource.forEach(row => {
                             const empName = String(row['Сотрудник'] || '').trim();
-                            const month = String(row['Месяц (за который берем аванс)'] || '').trim();
-                            if (month === monthSheet) {
+                            const amount = parseFloat(row['Сумма']) || 0;
+                            debugTotal += amount;
+
+                            // Ищем колонку месяца — пробуем разные варианты имени
+                            let monthVal = row['Месяц (за который берем аванс)'];
+                            if (monthVal === undefined || monthVal === null || monthVal === '') {
+                                // Пробуем другие варианты заголовка
+                                const keys = Object.keys(row);
+                                const monthKey = keys.find(k => k.toLowerCase().includes('месяц'));
+                                if (monthKey) monthVal = row[monthKey];
+                            }
+
+                            const month = normalizeMonth(monthVal);
+
+                            if (month === targetMonth) {
                                 if (!advancesMap[empName]) advancesMap[empName] = 0;
-                                advancesMap[empName] += parseFloat(row['Сумма']) || 0;
+                                advancesMap[empName] += amount;
+                                debugMatched += amount;
+                            } else if (empName && amount > 0) {
+                                debugUnmatched.push({ emp: empName, amount, month: month, raw: monthVal });
                             }
                         });
+
+                        console.log(`=== ADVANCES FILTER ===`);
+                        console.log(`Target month: "${targetMonth}"`);
+                        console.log(`Total sum all: ${debugTotal}, Matched: ${debugMatched}`);
+                        console.log(`Unmatched rows with data:`, debugUnmatched);
+                        console.log(`Advances map:`, advancesMap);
 
                         Object.entries(advancesMap).forEach(([name, advance]) => {
                             if (employeeData[name]) {
