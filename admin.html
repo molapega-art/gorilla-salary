@@ -143,6 +143,99 @@
             const [shiftsFromDb, setShiftsFromDb] = useState(null);
             const [advancesFromDb, setAdvancesFromDb] = useState(null);
             const [loadingShifts, setLoadingShifts] = useState(false);
+            const [refreshingAdvances, setRefreshingAdvances] = useState(false);
+
+            // Обновить авансы для уже сохранённого месяца (без перезагрузки файлов)
+            const refreshAdvancesForMonth = async (month) => {
+                setRefreshingAdvances(true);
+                setErrors([]);
+                try {
+                    // 1. Загружаем текущие расчёты из базы
+                    const salaryResp = await fetch(`${API_URL}?action=getSalaryData&month=${encodeURIComponent(month)}`, { method: 'GET', mode: 'cors' });
+                    const salaryResult = await salaryResp.json();
+                    if (!salaryResult.success || !salaryResult.data?.employees) {
+                        setErrors(['Нет данных расчётов для ' + month]);
+                        return;
+                    }
+
+                    // 2. Загружаем свежие авансы
+                    const advResp = await fetch(`${API_URL}?action=getAdvances`, { method: 'GET', mode: 'cors' });
+                    const advResult = await advResp.json();
+                    if (!advResult.success) {
+                        setErrors(['Ошибка загрузки авансов']);
+                        return;
+                    }
+                    const advances = advResult.data?.advances || advResult.data || [];
+
+                    // 3. Считаем авансы за этот месяц
+                    const normalizeMonth = (s) => String(s || '').trim().replace(/\s+/g, ' ');
+                    const targetMonth = normalizeMonth(month);
+                    const advancesMap = {};
+                    advances.forEach(row => {
+                        const empName = String(row['Сотрудник'] || '').trim();
+                        let monthVal = row['Месяц (за который берем аванс)'];
+                        if (monthVal === undefined || monthVal === null || monthVal === '') {
+                            const keys = Object.keys(row);
+                            const monthKey = keys.find(k => k.toLowerCase().includes('месяц'));
+                            if (monthKey) monthVal = row[monthKey];
+                        }
+                        if (normalizeMonth(monthVal) === targetMonth) {
+                            if (!advancesMap[empName]) advancesMap[empName] = 0;
+                            advancesMap[empName] += parseFloat(row['Сумма']) || 0;
+                        }
+                    });
+
+                    // 4. Обновляем расчёты с новыми авансами
+                    const employees = salaryResult.data.employees;
+                    const updatedEmployees = {};
+                    Object.entries(employees).forEach(([name, emp]) => {
+                        const oldAdvances = emp.advances || 0;
+                        const newAdvances = advancesMap[name] || 0;
+                        const diff = newAdvances - oldAdvances;
+                        updatedEmployees[name] = {
+                            ...emp,
+                            advances: newAdvances,
+                            totalToPay: (emp.totalToPay || 0) - diff // уменьшаем к выплате на разницу авансов
+                        };
+                    });
+
+                    // 5. Сохраняем обратно
+                    const saveResp = await fetch(`${API_URL}?action=saveSalaryData`, {
+                        method: 'POST',
+                        mode: 'cors',
+                        body: JSON.stringify({ month, employees: updatedEmployees })
+                    });
+                    const saveResult = await saveResp.json();
+
+                    if (saveResult.success) {
+                        // Показываем обновлённые данные
+                        const emps = Object.values(updatedEmployees).map(emp => ({
+                            ...emp,
+                            bonusByCategory: emp.bonusByCategory || {},
+                            sales: [],
+                            dailySales: emp.dailySales || {},
+                            shifts: emp.shifts || { shiftCount: 0, dailyPay: [], storeSchedule: [], totalShiftPay: emp.shiftPay || 0 }
+                        }));
+                        setProcessedData({
+                            month,
+                            employees: emps,
+                            bestDay: salaryResult.data.bestDay || {},
+                            topSeller: salaryResult.data.topSeller || {},
+                            totalRevenue: emps.reduce((s, e) => s + (e.totalSales || 0), 0)
+                        });
+                        setLoadedFromDb(true);
+
+                        const advSummary = Object.entries(advancesMap).map(([n, a]) => `${n}: ${a}`).join(', ');
+                        setWarnings([`✅ Авансы обновлены за ${month}! ${advSummary}`]);
+                    } else {
+                        setErrors([`Ошибка сохранения: ${saveResult.message}`]);
+                    }
+                } catch (err) {
+                    setErrors([`Ошибка: ${err.message}`]);
+                } finally {
+                    setRefreshingAdvances(false);
+                }
+            };
 
             // Автоподключение при загрузке
             useEffect(() => {
@@ -645,51 +738,13 @@
                         employeeData[topSeller.employee].topSellerBonus = topSeller.amount * 0.02;
                     }
 
-                    // Авансы: из Google Sheets (приоритет) или из файла
-                    const advSource = advancesFromDb || advancesData;
-                    if (advSource) {
-                        const advancesMap = {};
-                        const normalizeMonth = (s) => String(s || '').trim().replace(/\s+/g, ' ');
-                        const targetMonth = normalizeMonth(monthSheet);
-                        let debugTotal = 0, debugMatched = 0, debugUnmatched = [];
-
-                        advSource.forEach(row => {
-                            const empName = String(row['Сотрудник'] || '').trim();
-                            const amount = parseFloat(row['Сумма']) || 0;
-                            debugTotal += amount;
-
-                            // Ищем колонку месяца — пробуем разные варианты имени
-                            let monthVal = row['Месяц (за который берем аванс)'];
-                            if (monthVal === undefined || monthVal === null || monthVal === '') {
-                                // Пробуем другие варианты заголовка
-                                const keys = Object.keys(row);
-                                const monthKey = keys.find(k => k.toLowerCase().includes('месяц'));
-                                if (monthKey) monthVal = row[monthKey];
-                            }
-
-                            const month = normalizeMonth(monthVal);
-
-                            if (month === targetMonth) {
-                                if (!advancesMap[empName]) advancesMap[empName] = 0;
-                                advancesMap[empName] += amount;
-                                debugMatched += amount;
-                            } else if (empName && amount > 0) {
-                                debugUnmatched.push({ emp: empName, amount, month: month, raw: monthVal });
-                            }
-                        });
-
-                        console.log(`=== ADVANCES FILTER ===`);
-                        console.log(`Target month: "${targetMonth}"`);
-                        console.log(`Total sum all: ${debugTotal}, Matched: ${debugMatched}`);
-                        console.log(`Unmatched rows with data:`, debugUnmatched);
-                        console.log(`Advances map:`, advancesMap);
-
-                        Object.entries(advancesMap).forEach(([name, advance]) => {
-                            if (employeeData[name]) {
-                                employeeData[name].advances = advance;
-                            }
-                        });
-                    }
+                    // Авансы: берём из столбца "Выплачено" (advancePaid) таблицы смен
+                    // Это уже готовая сумма авансов за месяц для каждого сотрудника
+                    Object.entries(employeeData).forEach(([name, emp]) => {
+                        if (emp.shifts && emp.shifts.advancePaid) {
+                            emp.advances = emp.shifts.advancePaid;
+                        }
+                    });
 
                     Object.values(employeeData).forEach(emp => {
                         emp.shiftPay = emp.shifts.totalShiftPay || 0;
@@ -845,6 +900,15 @@
                                         ))}
                                     </div>
                                     <p className="text-xs text-gray-500">Нажмите на месяц, чтобы загрузить расчёт из базы без файлов</p>
+                                    {processedData && loadedFromDb && (
+                                        <button
+                                            onClick={() => refreshAdvancesForMonth(processedData.month)}
+                                            disabled={refreshingAdvances}
+                                            className="bg-orange-900/30 border border-orange-600 text-orange-300 px-4 py-2 rounded text-sm hover:bg-orange-800/50 transition cursor-pointer font-medium disabled:opacity-50 mt-2"
+                                        >
+                                            {refreshingAdvances ? '⏳ Обновляю...' : `🔄 Обновить авансы для ${processedData.month}`}
+                                        </button>
+                                    )}
                                 </div>
                             )}
 
