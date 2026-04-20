@@ -158,30 +158,19 @@
                         return;
                     }
 
-                    // 2. Загружаем свежие авансы
-                    const advResp = await fetch(`${API_URL}?action=getAdvances`, { method: 'GET', mode: 'cors' });
-                    const advResult = await advResp.json();
-                    if (!advResult.success) {
-                        setErrors(['Ошибка загрузки авансов']);
+                    // 2. Загружаем данные смен (там столбец "Выплачено" = авансы)
+                    const shiftResp = await fetch(`${API_URL}?action=getShiftsData&month=${encodeURIComponent(month)}`, { method: 'GET', mode: 'cors' });
+                    const shiftResult = await shiftResp.json();
+                    if (!shiftResult.success || !shiftResult.data?.employees) {
+                        setErrors(['Ошибка загрузки смен для ' + month]);
                         return;
                     }
-                    const advances = advResult.data?.advances || advResult.data || [];
 
-                    // 3. Считаем авансы за этот месяц
-                    const normalizeMonth = (s) => String(s || '').trim().replace(/\s+/g, ' ');
-                    const targetMonth = normalizeMonth(month);
+                    // 3. Берём авансы из столбца "Выплачено" таблицы месяца
                     const advancesMap = {};
-                    advances.forEach(row => {
-                        const empName = String(row['Сотрудник'] || '').trim();
-                        let monthVal = row['Месяц (за который берем аванс)'];
-                        if (monthVal === undefined || monthVal === null || monthVal === '') {
-                            const keys = Object.keys(row);
-                            const monthKey = keys.find(k => k.toLowerCase().includes('месяц'));
-                            if (monthKey) monthVal = row[monthKey];
-                        }
-                        if (normalizeMonth(monthVal) === targetMonth) {
-                            if (!advancesMap[empName]) advancesMap[empName] = 0;
-                            advancesMap[empName] += parseFloat(row['Сумма']) || 0;
+                    Object.entries(shiftResult.data.employees).forEach(([name, emp]) => {
+                        if (emp.advancePaid && emp.advancePaid > 0) {
+                            advancesMap[name] = emp.advancePaid;
                         }
                     });
 
