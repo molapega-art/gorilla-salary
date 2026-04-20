@@ -7,7 +7,7 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- SheetJS removed — no longer needed with Billz auto-sync -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         * {
@@ -104,30 +104,9 @@
         const { useState, useEffect, useRef } = React;
 
         const AdminApp = () => {
-            const [transactionsFile, setTransactionsFile] = useState(null);
-            const [catalogFile, setCatalogFile] = useState(null);
-            const [shiftsFile, setShiftsFile] = useState(null);
-            const [advancesFile, setAdvancesFile] = useState(null);
-
-            const [transactionsData, setTransactionsData] = useState(null);
-            const [catalogData, setCatalogData] = useState(null);
-            const [shiftsData, setShiftsData] = useState(null);
-            const [advancesData, setAdvancesData] = useState(null);
-
             const [monthSheet, setMonthSheet] = useState('');
-            const [availableMonths, setAvailableMonths] = useState([]);
             const [processedData, setProcessedData] = useState(null);
             const [loadedFromDb, setLoadedFromDb] = useState(false);
-            const [nameMapping, setNameMapping] = useState({
-                'Давид': 'Гачечиладзе Давид',
-                'Миша А.': 'Alkema Mikhail',
-                'Лиза': 'Galkina Elizaveta',
-                'Кирилл': 'Sennikov Kirill',
-                'Миша Н.': 'Nazarov Mikhail',
-                'Мурат': 'Bobomurod Tolibjonov',
-                'Макс': 'Барсуков Максим',
-                'Lapega Mikhail': 'Lapega Mikhail'
-            });
             const [errors, setErrors] = useState([]);
             const [warnings, setWarnings] = useState([]);
 
@@ -144,6 +123,7 @@
             const [advancesFromDb, setAdvancesFromDb] = useState(null);
             const [loadingShifts, setLoadingShifts] = useState(false);
             const [refreshingAdvances, setRefreshingAdvances] = useState(false);
+            const [loadingTransactions, setLoadingTransactions] = useState(false);
 
             // Обновить авансы для уже сохранённого месяца (без перезагрузки файлов)
             const refreshAdvancesForMonth = async (month) => {
@@ -300,21 +280,7 @@
                 }
             };
 
-            const parseExcelFile = (file) => {
-                return new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        try {
-                            const data = new Uint8Array(e.target.result);
-                            const workbook = XLSX.read(data, { type: 'array' });
-                            resolve(workbook);
-                        } catch (err) {
-                            reject(err);
-                        }
-                    };
-                    reader.readAsArrayBuffer(file);
-                });
-            };
+            // parseExcelFile removed — transactions and catalog now load from Billz via DB
 
             const testSheetsConnection = async () => {
                 if (!appsScriptUrl.trim()) {
@@ -388,71 +354,11 @@
 
                     const result = await response.json();
                     if (result.success) {
-                        // Also save transactions with original IDs
-                        const transactions = [];
-                        Object.values(processedData.employees).forEach(emp => {
-                            emp.sales.forEach(sale => {
-                                transactions.push({
-                                    'ID транзакции': sale.txId || '',
-                                    'Дата': sale.date,
-                                    'Магазин': sale.store || '',
-                                    'Кассир': emp.shortName,
-                                    'Товар': sale.product,
-                                    'Артикул': sale.sku || '',
-                                    'Категория': sale.category,
-                                    'Выручка': sale.amount,
-                                    'Месяц': processedData.month
-                                });
-                            });
-                        });
-
-                        if (transactions.length > 0) {
-                            const txResult = await fetch(`${appsScriptUrl}?action=saveTransactions`, {
-                                method: 'POST',
-                                mode: 'cors',
-                                body: JSON.stringify({ transactions })
-                            });
-                            const txData = await txResult.json();
-                            var txInfo = txData.data ? `, Транзакций: ${txData.data.added} новых, ${txData.data.skipped} пропущено` : '';
-                        }
-
-                        // Save catalog
-                        if (catalogData && catalogData.length > 0) {
-                            await fetch(`${appsScriptUrl}?action=saveCatalog`, {
-                                method: 'POST',
-                                mode: 'cors',
-                                body: JSON.stringify({ catalog: catalogData })
-                            });
-                        }
-
-                        // Save shifts
-                        const shifts = [];
-                        Object.values(processedData.employees).forEach(emp => {
-                            if (emp.shifts && emp.shifts.storeSchedule) {
-                                emp.shifts.storeSchedule.forEach((shift, idx) => {
-                                    const pay = emp.shifts.dailyPay?.[shift.dayIndex] || 0;
-                                    if (pay > 0) {
-                                        shifts.push({
-                                            month: processedData.month,
-                                            employee: emp.shortName,
-                                            date: shift.date || '',
-                                            store: shift.store || '',
-                                            pay: pay
-                                        });
-                                    }
-                                });
-                            }
-                        });
-                        if (shifts.length > 0) {
-                            await fetch(`${appsScriptUrl}?action=saveShifts`, {
-                                method: 'POST',
-                                mode: 'cors',
-                                body: JSON.stringify({ shifts })
-                            });
-                        }
+                        // Транзакции и каталог синхронизируются автоматически через Billz
+                        // Сохраняем только расчёты зарплат
 
                         setErrors([]);
-                        setWarnings([`Успешно сохранено в Google Sheets! Месяц: ${processedData.month}, Сотрудников: ${result.data.saved}${txInfo || ''}`]);
+                        setWarnings([`Успешно сохранено в Google Sheets! Месяц: ${processedData.month}, Сотрудников: ${result.data.saved}`]);
                         await loadSavedMonths();
                     } else {
                         setErrors([`Ошибка сохранения: ${result.message}`]);
@@ -464,172 +370,40 @@
                 }
             };
 
-            const handleTransactionsUpload = async (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                try {
-                    const workbook = await parseExcelFile(file);
-                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-                    const data = XLSX.utils.sheet_to_json(sheet);
-                    setTransactionsFile(file);
-                    setTransactionsData(data);
-                    setWarnings([]);
+            // File upload handlers removed — data now comes from Billz auto-sync
 
-                    // Показываем статистику загрузки
-                    const uniqueIds = new Set(data.map(r => r['ID транзакции']));
-                    setWarnings([`Загружено: ${data.length} строк, ${uniqueIds.size} уникальных транзакций (чеков). Дубликаты проверяются при сохранении в базу.`]);
-                } catch (err) {
-                    setErrors([`Ошибка при загрузке транзакций: ${err.message}`]);
-                }
-            };
+            // Shift/advances file upload and extractShiftData removed — shifts load from Google Sheets API
 
-            const handleCatalogUpload = async (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                try {
-                    const workbook = await parseExcelFile(file);
-                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-                    const data = XLSX.utils.sheet_to_json(sheet);
-                    setCatalogFile(file);
-                    setCatalogData(data);
-                } catch (err) {
-                    setErrors([`Ошибка при загрузке каталога: ${err.message}`]);
-                }
-            };
-
-            const handleShiftsUpload = async (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                try {
-                    const workbook = await parseExcelFile(file);
-                    setShiftsFile(file);
-
-                    const months = workbook.SheetNames.filter(name =>
-                        /[А-Я][а-я]+_\d{2}/.test(name)
-                    );
-                    setAvailableMonths(months);
-                    if (months.length > 0) {
-                        setMonthSheet(months[0]);
-                    }
-
-                    setShiftsData(workbook);
-
-                    if (workbook.SheetNames.includes('Авансы')) {
-                        const advSheet = workbook.Sheets['Авансы'];
-                        const advRows = XLSX.utils.sheet_to_json(advSheet);
-                        setAdvancesData(advRows);
-                        setAdvancesFile({ name: 'Авансы (из графика смен)' });
-                    }
-                } catch (err) {
-                    setErrors([`Ошибка при загрузке смен: ${err.message}`]);
-                }
-            };
-
-            const handleAdvancesUpload = async (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                try {
-                    const workbook = await parseExcelFile(file);
-                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-                    const data = XLSX.utils.sheet_to_json(sheet);
-                    setAdvancesFile(file);
-                    setAdvancesData(data);
-                } catch (err) {
-                    setErrors([`Ошибка при загрузке авансов: ${err.message}`]);
-                }
-            };
-
-            const extractShiftData = (sheet) => {
-                const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-
-                const dates = [];
-                if (rows.length > 0) {
-                    for (let j = 2; j <= 31; j++) {
-                        dates.push(rows[0][j] || null);
-                    }
-                }
-
-                const storeNames = ['City center I', 'City center II', 'Pekini', 'Dry bridge', 'Online'];
-                const storeSchedule = {};
-                for (let storeIdx = 0; storeIdx < 5; storeIdx++) {
-                    const rowIdx = storeIdx + 2;
-                    if (rowIdx >= rows.length) break;
-                    const row = rows[rowIdx];
-                    const storeName = String(row[0] || storeNames[storeIdx]).trim();
-                    for (let j = 2; j <= 31; j++) {
-                        const empName = row[j] ? String(row[j]).trim() : null;
-                        if (empName) {
-                            if (!storeSchedule[empName]) storeSchedule[empName] = [];
-                            storeSchedule[empName].push({
-                                dayIndex: j - 2,
-                                date: dates[j - 2],
-                                store: storeName
-                            });
-                        }
-                    }
-                }
-
-                const employees = {};
-                if (rows.length > 16) {
-                    for (let i = 16; i < rows.length; i++) {
-                        const row = rows[i];
-                        const name = row[0];
-                        if (!name || typeof name !== 'string' && typeof name !== 'number') break;
-
-                        const shortName = String(name).trim();
-                        if (shortName === 'Online' || shortName === '') break;
-                        const shiftCount = row[1] || 0;
-
-                        const dailyPay = [];
-                        for (let j = 2; j <= 31; j++) {
-                            dailyPay.push(row[j] || 0);
-                        }
-
-                        employees[shortName] = {
-                            shiftCount,
-                            dailyPay,
-                            dates,
-                            storeSchedule: storeSchedule[shortName] || [],
-                            totalShiftPay: row[33] || 0,
-                            reviewsBonus: row[34] || 0,
-                            bestDayBonus: row[36] || 0,
-                            topSellerBonus: row[37] || 0,
-                            management: row[38] || 0,
-                            inventoryDeduction: row[39] || 0,
-                            advancePaid: row[40] || 0
-                        };
-                    }
-                }
-
-                return employees;
-            };
-
-            const processData = () => {
+            const processData = async () => {
                 setLoadedFromDb(false);
-                const useDbShifts = !!shiftsFromDb;
-                if (!transactionsData || !catalogData || (!shiftsData && !useDbShifts) || !monthSheet) {
-                    setErrors(['Пожалуйста, загрузите отчёт продаж и каталог, и выберите месяц']);
+                if (!shiftsFromDb || !monthSheet) {
+                    setErrors(['Сначала загрузите смены (выберите месяц и нажмите "Загрузить смены")']);
                     return;
                 }
 
                 try {
-                    // Смены: из Google Sheets или из файла
-                    let shiftEmployees;
-                    if (shiftsFromDb) {
-                        shiftEmployees = shiftsFromDb;
-                    } else {
-                        const sheet = shiftsData.Sheets[monthSheet];
-                        shiftEmployees = extractShiftData(sheet);
+                    // 1. Загружаем транзакции из базы (Billz auto-sync)
+                    setLoadingTransactions(true);
+                    setWarnings(['⏳ Загружаю транзакции из базы...']);
+                    const txResp = await fetch(`${API_URL}?action=getTransactions&month=${encodeURIComponent(monthSheet)}`, { method: 'GET', mode: 'cors' });
+                    const txResult = await txResp.json();
+                    setLoadingTransactions(false);
+
+                    if (!txResult.success || !txResult.data || !txResult.data.transactions) {
+                        setErrors([`Ошибка загрузки транзакций: ${txResult.message || 'Нет данных'}`]);
+                        return;
                     }
 
-                    const catalogMap = {};
-                    catalogData.forEach(item => {
-                        catalogMap[item['Артикул']] = {
-                            name: item['Наименование'],
-                            category: item['Категория'],
-                            price: item['Цена продажи']
-                        };
-                    });
+                    const transactions = txResult.data.transactions;
+                    if (transactions.length === 0) {
+                        setErrors([`Нет транзакций за ${monthSheet}. Убедитесь, что Billz синхронизация прошла успешно.`]);
+                        return;
+                    }
+
+                    setWarnings([`📦 Загружено ${transactions.length} транзакций за ${monthSheet}. Рассчитываю...`]);
+
+                    // 2. Смены из Google Sheets (уже загружены)
+                    const shiftEmployees = shiftsFromDb;
 
                     const bonusCategories = {
                         'LED - Grow Lighting': 0.05,
@@ -638,27 +412,22 @@
                         'CBD > CBD Other': 0.05
                     };
 
-                    const reverseMapping = {};
-                    Object.entries(nameMapping).forEach(([shortName, fullName]) => {
-                        reverseMapping[fullName] = shortName;
-                        reverseMapping[fullName.trim()] = shortName;
-                    });
-
                     const employeeData = {};
                     const dailySales = {};
 
-                    // Обрабатываем ВСЕ строки — один чек = несколько товаров = несколько строк с одним ID
-                    transactionsData.forEach(row => {
-                        const cashierFull = String(row['ФИО кассира'] || '').trim();
-                        const shortName = reverseMapping[cashierFull] || cashierFull;
-                        const date = row['Дата'];
-                        const sku = row['Артикул'];
-                        const netRevenue = parseFloat(row['Чистая выручка']) || 0;
+                    // Обрабатываем транзакции из БД — уже имеют короткие имена и категории
+                    transactions.forEach(row => {
+                        const shortName = row.cashier;
+                        const date = row.date;
+                        const sku = row.sku;
+                        const category = row.category || 'Прочее';
+                        const netRevenue = row.amount || 0;
+
+                        if (!shortName) return;
 
                         if (!employeeData[shortName]) {
                             employeeData[shortName] = {
                                 shortName: shortName,
-                                fullName: cashierFull,
                                 shifts: shiftEmployees[shortName] || {},
                                 sales: [],
                                 dailySales: {},
@@ -670,8 +439,6 @@
                             };
                         }
 
-                        const catalogItem = catalogMap[sku] || {};
-                        const category = catalogItem.category || 'Прочее';
                         const bonusRate = bonusCategories[category] || 0;
                         const bonus = netRevenue * bonusRate;
 
@@ -686,10 +453,10 @@
                         employeeData[shortName].bonusByCategory[category].amount += netRevenue;
                         employeeData[shortName].bonusByCategory[category].bonus += bonus;
                         employeeData[shortName].sales.push({
-                            txId: row['ID транзакции'],
+                            txId: row.id,
                             date,
-                            store: row['Магазин'] || '',
-                            product: catalogItem.name || row['Наименование товара'],
+                            store: row.store || '',
+                            product: row.product,
                             sku: sku,
                             category,
                             amount: netRevenue,
@@ -708,7 +475,8 @@
                     let topSeller = { employee: '', amount: 0 };
 
                     Object.entries(dailySales).forEach(([key, amount]) => {
-                        const [employee, date] = key.split('_');
+                        const [employee, ...dateParts] = key.split('_');
+                        const date = dateParts.join('_');
                         if (amount > bestDay.amount) {
                             bestDay = { employee, date, amount };
                         }
@@ -728,7 +496,6 @@
                     }
 
                     // Авансы: берём из столбца "Выплачено" (advancePaid) таблицы смен
-                    // Это уже готовая сумма авансов за месяц для каждого сотрудника
                     Object.entries(employeeData).forEach(([name, emp]) => {
                         if (emp.shifts && emp.shifts.advancePaid) {
                             emp.advances = emp.shifts.advancePaid;
@@ -745,21 +512,19 @@
                         employees: employeeData,
                         bestDay,
                         topSeller,
-                        month: monthSheet
+                        month: monthSheet,
+                        totalRevenue: Object.values(employeeData).reduce((s, e) => s + e.totalSales, 0)
                     });
                     setErrors([]);
+                    setWarnings([`✅ Расчёт завершён: ${Object.keys(employeeData).length} сотрудников, ${transactions.length} транзакций`]);
                 } catch (err) {
                     setErrors([`Ошибка при обработке данных: ${err.message}`]);
                     console.error(err);
+                    setLoadingTransactions(false);
                 }
             };
 
-            const handleNameMappingChange = (shortName, fullName) => {
-                setNameMapping(prev => ({
-                    ...prev,
-                    [shortName]: fullName
-                }));
-            };
+            // Name mapping removed — handled server-side in Apps Script NAME_MAP
 
             const exportData = () => {
                 if (!processedData) {
@@ -936,77 +701,43 @@
                                 </div>
                             )}
 
-                            {/* File Upload Section — only transactions and catalog */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <FileUploadZone
-                                    label="📋 Транзакции (Продажи)"
-                                    file={transactionsFile}
-                                    onChange={handleTransactionsUpload}
-                                    description="Отчет по продажам .xlsx"
-                                />
-                                <FileUploadZone
-                                    label="📦 Каталог"
-                                    file={catalogFile}
-                                    onChange={handleCatalogUpload}
-                                    description="Каталог товаров .xlsx"
-                                />
-                            </div>
-
-                            {/* Name Mapping Editor */}
-                            <div className="glass-effect rounded-lg p-6">
-                                <h2 className="text-xl font-bold mb-4">👥 Соответствие Имён</h2>
-                                <div className="overflow-x-auto">
-                                    <table className="w-full">
-                                        <thead>
-                                            <tr>
-                                                <th className="text-left px-4 py-2">Короткое Имя</th>
-                                                <th className="text-left px-4 py-2">Полное Имя</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {Object.entries(nameMapping).map(([short, full]) => (
-                                                <tr key={short}>
-                                                    <td className="px-4 py-2 border-b border-gray-800">{short}</td>
-                                                    <td className="px-4 py-2 border-b border-gray-800">
-                                                        <input
-                                                            type="text"
-                                                            value={full}
-                                                            onChange={(e) => handleNameMappingChange(short, e.target.value)}
-                                                            className="input-field w-full px-3 py-1 rounded text-white focus:outline-none"
-                                                        />
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
+                            {/* Billz auto-sync info */}
+                            <div className="glass-effect rounded-lg p-4 border border-green-500/30">
+                                <div className="flex items-center gap-3">
+                                    <span className="text-2xl">🔄</span>
+                                    <div>
+                                        <div className="font-medium text-green-400">Billz Auto-Sync</div>
+                                        <div className="text-sm text-gray-400">Транзакции и каталог синхронизируются автоматически каждый день в 11:00. Маппинг имён настроен на сервере.</div>
+                                    </div>
                                 </div>
                             </div>
 
-                            {/* Process & Save — only when working with files, not loaded from DB */}
-                            {!loadedFromDb && (
-                                <div className="space-y-4">
+                            {/* Process & Save */}
+                            <div className="space-y-4">
+                                {!loadedFromDb && (
                                     <button
                                         onClick={processData}
-                                        className="btn-primary w-full px-6 py-3 rounded-lg text-white font-bold text-lg"
+                                        disabled={loadingTransactions || !shiftsFromDb}
+                                        className="btn-primary w-full px-6 py-3 rounded-lg text-white font-bold text-lg disabled:opacity-50"
                                     >
-                                        ✨ Рассчитать Зарплаты
+                                        {loadingTransactions ? '⏳ Загрузка транзакций...' : '✨ Рассчитать Зарплаты'}
                                     </button>
+                                )}
 
-                                    {processedData && sheetsConnected && (
-                                        <button
-                                            onClick={saveToGoogleSheets}
-                                            disabled={savingToSheets}
-                                            className="btn-primary w-full px-6 py-3 rounded-lg text-white font-bold text-lg disabled:opacity-50"
-                                        >
-                                            {savingToSheets ? '⏳ Сохраняю...' : '💾 Сохранить в Google Sheets'}
-                                        </button>
-                                    )}
-                                </div>
-                            )}
+                                {processedData && sheetsConnected && !loadedFromDb && (
+                                    <button
+                                        onClick={saveToGoogleSheets}
+                                        disabled={savingToSheets}
+                                        className="btn-primary w-full px-6 py-3 rounded-lg text-white font-bold text-lg disabled:opacity-50"
+                                    >
+                                        {savingToSheets ? '⏳ Сохраняю...' : '💾 Сохранить в Google Sheets'}
+                                    </button>
+                                )}
+                            </div>
 
                             {/* Dashboard */}
                             {processedData && (
-                                <SalaryDashboard processedData={processedData} nameMapping={nameMapping} />
+                                <SalaryDashboard processedData={processedData} />
                             )}
                         </div>
                     </div>
@@ -1014,39 +745,16 @@
                     {/* Footer */}
                     <div className="max-w-7xl mx-auto px-4 py-6">
                         <div className="glass-effect rounded-lg p-4 text-center text-gray-400 text-sm">
-                            📊 Версия 3.0 | Администратор с Google Sheets синхронизацией
+                            📊 Версия 4.0 | Billz Auto-Sync + Google Sheets
                         </div>
                     </div>
                 </div>
             );
         };
 
-        const FileUploadZone = ({ label, file, onChange, description }) => {
-            return (
-                <div className="glass-effect rounded-lg p-6 border-2 border-dashed border-gray-700 hover:border-indigo-500 transition">
-                    <label className="cursor-pointer block">
-                        <input
-                            type="file"
-                            accept=".xlsx,.xls"
-                            onChange={onChange}
-                            className="hidden"
-                        />
-                        <div className="text-center">
-                            <div className="text-3xl mb-2">{label.split(' ')[0]}</div>
-                            <div className="font-medium mb-1">{label.split(' ').slice(1).join(' ')}</div>
-                            <div className="text-sm text-gray-400">{description}</div>
-                            {file && (
-                                <div className="mt-2 text-green-400 text-sm">
-                                    ✓ {file.name}
-                                </div>
-                            )}
-                        </div>
-                    </label>
-                </div>
-            );
-        };
+        // FileUploadZone removed — no longer needed with Billz auto-sync
 
-        const SalaryDashboard = ({ processedData, nameMapping }) => {
+        const SalaryDashboard = ({ processedData }) => {
             const employees = Object.values(processedData.employees).sort((a, b) =>
                 b.totalSales - a.totalSales
             );
