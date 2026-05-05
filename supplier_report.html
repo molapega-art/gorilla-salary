@@ -375,7 +375,6 @@ function SalesTab({ year, setError, S }) {
   const [to, setTo]     = React.useState(initial.to);
   const [report, setReport] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
-  const [refreshing, setRefreshing] = React.useState(false);
   const [activeWeek, setActiveWeek] = React.useState(null);
   const weeks = React.useMemo(() => weeksOfYear(year), [year]);
 
@@ -390,12 +389,6 @@ function SalesTab({ year, setError, S }) {
     try { setReport(await apiGet('getSupplierReport', { from: f, to: t, supplier: SUPPLIER })); }
     catch (e) { setError(S.err_sales + e.message); }
     finally { setLoading(false); }
-  }
-  async function refreshFromBillz() {
-    setRefreshing(true); setError('');
-    try { await apiGet('refreshRange', { from, to }); await load(from, to); }
-    catch (e) { setError(S.err_sync + e.message); }
-    finally { setRefreshing(false); }
   }
   function pickWeek(w) { setFrom(w.start); setTo(w.end); setActiveWeek(w.n); load(w.start, w.end); }
 
@@ -416,11 +409,8 @@ function SalesTab({ year, setError, S }) {
               {loading ? S.btn_loading : S.btn_form}
             </button>
           </div>
-          <div className="md:col-span-3 flex gap-2">
-            <button onClick={refreshFromBillz} disabled={refreshing} className="ghost flex-1">
-              {refreshing ? S.btn_refreshing : S.btn_refresh}
-            </button>
-            <button onClick={() => exportXlsx(report, S)} disabled={!report || !report.rows.length} className="btn-emerald flex-1">{S.btn_xlsx}</button>
+          <div className="md:col-span-3">
+            <button onClick={() => exportXlsx(report, S)} disabled={!report || !report.rows.length} className="btn-emerald w-full">{S.btn_xlsx}</button>
           </div>
         </div>
         <div className="mt-4">
