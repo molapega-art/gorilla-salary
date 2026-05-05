@@ -62,6 +62,7 @@ const STRINGS = {
     title: 'Global Bridges — учёт',
     subtitle: 'Gorilla Mafia · автообновление продаж в 11:00 (Тбилиси)',
     tab_sales: '📦 Отчёт продаж',
+    tab_supplies: '📥 Приёмки',
     tab_payments: '💳 Платежи',
     tab_recon: '📊 Сверка',
 
@@ -126,12 +127,27 @@ const STRINGS = {
     col_debt_cb: 'Долг CB',
     err_sales: 'Отчёт продаж: ',
     err_sync: 'Синхронизация: ',
-    err_recon: 'Сверка: '
+    err_recon: 'Сверка: ',
+    err_supplies: 'Приёмки: ',
+
+    // Supplies tab
+    sup_col_date: 'Дата',
+    sup_col_product: 'Товар',
+    sup_col_sku: 'Артикул',
+    sup_col_barcode: 'Штрихкод',
+    sup_col_shop: 'Магазин',
+    sup_col_qty: 'Кол-во',
+    sup_col_price: 'Цена закуп.',
+    sup_col_total: 'Сумма',
+    sup_stat_lines: 'Позиций',
+    sup_stat_qty: 'Всего товаров',
+    sup_stat_sum: 'Общая сумма'
   },
   en: {
     title: 'Global Bridges — accounting',
     subtitle: 'Gorilla Mafia · sales auto-sync at 11:00 (Tbilisi)',
     tab_sales: '📦 Sales report',
+    tab_supplies: '📥 Supplies',
     tab_payments: '💳 Payments',
     tab_recon: '📊 Reconciliation',
 
@@ -196,7 +212,21 @@ const STRINGS = {
     col_debt_cb: 'CB debt',
     err_sales: 'Sales report: ',
     err_sync: 'Sync: ',
-    err_recon: 'Reconciliation: '
+    err_recon: 'Reconciliation: ',
+    err_supplies: 'Supplies: ',
+
+    // Supplies tab
+    sup_col_date: 'Date',
+    sup_col_product: 'Product',
+    sup_col_sku: 'SKU',
+    sup_col_barcode: 'Barcode',
+    sup_col_shop: 'Shop',
+    sup_col_qty: 'Qty',
+    sup_col_price: 'Cost/unit',
+    sup_col_total: 'Sum',
+    sup_stat_lines: 'Line items',
+    sup_stat_qty: 'Total qty',
+    sup_stat_sum: 'Total sum'
   }
 };
 
@@ -345,8 +375,9 @@ function App() {
         </div>
       </header>
 
-      <nav className="max-w-7xl mx-auto flex gap-1 border-b border-white/10 mb-0 px-1">
+      <nav className="max-w-7xl mx-auto flex gap-1 border-b border-white/10 mb-0 px-1 flex-wrap">
         <div className={'tab ' + (tab === 'sales' ? 'active' : '')} onClick={() => setTab('sales')}>{S.tab_sales}</div>
+        <div className={'tab ' + (tab === 'supplies' ? 'active' : '')} onClick={() => setTab('supplies')}>{S.tab_supplies}</div>
         <div className={'tab ' + (tab === 'payments' ? 'active' : '')} onClick={() => setTab('payments')}>{S.tab_payments}</div>
         <div className={'tab ' + (tab === 'recon' ? 'active' : '')} onClick={() => setTab('recon')}>{S.tab_recon}</div>
       </nav>
@@ -359,6 +390,7 @@ function App() {
 
       <main className="max-w-7xl mx-auto py-4">
         {tab === 'sales'    && <SalesTab year={year} setError={setError} S={S} />}
+        {tab === 'supplies' && <SuppliesTab year={year} setError={setError} S={S} />}
         {tab === 'payments' && <PaymentsTab setError={setError} S={S} />}
         {tab === 'recon'    && <ReconTab year={year} setError={setError} S={S} />}
       </main>
@@ -597,6 +629,119 @@ function PaymentBlock({ title, type, pin, setError, S }) {
         </table>
       </div>
     </section>
+  );
+}
+
+/* ============================================================
+ *  TAB: SUPPLIES — приёмки товара
+ * ============================================================ */
+function SuppliesTab({ year, setError, S }) {
+  const initial = currentWeekRange();
+  const [from, setFrom] = React.useState(initial.from);
+  const [to, setTo]     = React.useState(initial.to);
+  const [report, setReport] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  const [activeWeek, setActiveWeek] = React.useState(null);
+  const weeks = React.useMemo(() => weeksOfYear(year), [year]);
+
+  React.useEffect(() => {
+    const cur = weeks.find(w => w.start === initial.from && w.end === initial.to);
+    if (cur) setActiveWeek(cur.n);
+    load(initial.from, initial.to);
+  }, []);
+
+  async function load(f, t) {
+    setLoading(true); setError('');
+    try { setReport(await apiGet('getSuppliesReport', { from: f, to: t, supplier: SUPPLIER })); }
+    catch (e) { setError(S.err_supplies + e.message); }
+    finally { setLoading(false); }
+  }
+  function pickWeek(w) { setFrom(w.start); setTo(w.end); setActiveWeek(w.n); load(w.start, w.end); }
+
+  return (
+    <>
+      <section className="glass rounded-2xl p-4 md:p-5 mb-5">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+          <label className="md:col-span-3">
+            <div className="text-xs text-slate-400 mb-1">{S.from}</div>
+            <input type="date" value={from} onChange={e => { setFrom(e.target.value); setActiveWeek(null); }} className="w-full" />
+          </label>
+          <label className="md:col-span-3">
+            <div className="text-xs text-slate-400 mb-1">{S.to}</div>
+            <input type="date" value={to} onChange={e => { setTo(e.target.value); setActiveWeek(null); }} className="w-full" />
+          </label>
+          <div className="md:col-span-3">
+            <button onClick={() => load(from, to)} disabled={loading} className="btn-primary w-full">
+              {loading ? S.btn_loading : S.btn_form}
+            </button>
+          </div>
+        </div>
+        <div className="mt-4">
+          <div className="text-xs text-slate-400 mb-2">{S.weeks_of} {year} {S.weeks_suffix}</div>
+          <div className="week-strip">
+            {weeks.map(w => (
+              <button key={w.n} onClick={() => pickWeek(w)} title={w.start + ' → ' + w.end}
+                      className={'pill px-3 py-1.5 rounded-md text-xs flex-shrink-0 ' + (activeWeek === w.n ? 'active' : '')}>
+                <span className="font-mono">W{w.n}</span> · {w.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {report && (
+        <section className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+          <Stat label={S.stat_period} value={report.period} mono />
+          <Stat label={S.sup_stat_lines} value={fmtInt(report.totals.lines)} />
+          <Stat label={S.sup_stat_qty} value={fmtInt(report.totals.qty)} />
+          <Stat label={S.sup_stat_sum} value={fmtMoney(report.totals.sum) + ' ' + CURRENCY} bold />
+        </section>
+      )}
+
+      <section className="glass rounded-2xl p-2 md:p-3">
+        <div className="scroll-x">
+          <table className="w-full text-sm">
+            <thead className="text-slate-400">
+              <tr>
+                <th className="text-left  px-3 py-2">{S.sup_col_date}</th>
+                <th className="text-left  px-3 py-2">{S.sup_col_product}</th>
+                <th className="text-left  px-3 py-2">{S.sup_col_sku}</th>
+                <th className="text-left  px-3 py-2">{S.sup_col_barcode}</th>
+                <th className="text-left  px-3 py-2">{S.sup_col_shop}</th>
+                <th className="text-right px-3 py-2">{S.sup_col_qty}</th>
+                <th className="text-right px-3 py-2">{S.sup_col_price}</th>
+                <th className="text-right px-3 py-2">{S.sup_col_total}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(!report || !report.rows.length) && (
+                <tr><td colSpan={8} className="text-center text-slate-500 py-10">{loading ? S.btn_loading : S.no_data}</td></tr>
+              )}
+              {report && report.rows.map((r, i) => (
+                <tr key={i} className="border-t border-white/5">
+                  <td className="px-3 py-2 font-mono text-slate-300">{r.date}</td>
+                  <td className="px-3 py-2">{r.productName}</td>
+                  <td className="px-3 py-2 font-mono text-slate-300">{r.sku}</td>
+                  <td className="px-3 py-2 font-mono text-slate-500 text-xs">{r.barcode}</td>
+                  <td className="px-3 py-2 text-slate-400">{r.shopName}</td>
+                  <td className="num px-3 py-2">{fmtInt(r.qty)}</td>
+                  <td className="num px-3 py-2 text-slate-400">{fmtMoney(r.supplyPrice)}</td>
+                  <td className="num px-3 py-2 font-medium text-emerald-300">{fmtMoney(r.total)}</td>
+                </tr>
+              ))}
+              {report && report.rows.length > 0 && (
+                <tr className="border-t-2 border-white/20 font-semibold">
+                  <td className="px-3 py-2" colSpan={5}>{S.total}</td>
+                  <td className="num px-3 py-2">{fmtInt(report.totals.qty)}</td>
+                  <td></td>
+                  <td className="num px-3 py-2 text-emerald-300">{fmtMoney(report.totals.sum)}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
   );
 }
 
