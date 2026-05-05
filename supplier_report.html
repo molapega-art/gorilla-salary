@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Gorilla Mafia — Отчёт по поставщикам</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<style>
+  body { background: #0b0d12; color: #e6e8ef; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .glass { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); backdrop-filter: blur(8px); }
+  .pill   { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); }
+  .pill:hover { background: rgba(255,255,255,.10); }
+  .pill.active { background: #2563eb; border-color: #2563eb; color: white; }
+  .tab { padding: .5rem 1rem; border-radius: .5rem .5rem 0 0; cursor: pointer; border: 1px solid transparent; border-bottom: none; }
+  .tab.active { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.08); }
+  table { border-collapse: separate; border-spacing: 0; }
+  th, td { white-space: nowrap; }
+  thead th { position: sticky; top: 0; background: #14171f; z-index: 1; }
+  tbody tr:hover { background: rgba(255,255,255,.03); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .scroll-x { overflow-x: auto; }
+  .week-strip { display: flex; gap: .35rem; overflow-x: auto; padding-bottom: .25rem; }
+  .week-strip::-webkit-scrollbar { height: 6px; }
+  .week-strip::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 4px; }
+  input[type=date], input[type=number], input[type=text], input[type=password], select {
+    background: #0f131c; border: 1px solid #2a3142; color: #e6e8ef; border-radius: .5rem; padding: .45rem .65rem; font-size: .9rem;
+  }
+  input:focus, select:focus { outline: none; border-color: #2563eb; }
+  .btn-primary { background:#2563eb; color:#fff; padding:.5rem 1rem; border-radius:.5rem; font-size:.9rem; font-weight:500; }
+  .btn-primary:hover{ background:#1d4ed8; }
+  .btn-primary:disabled{ opacity:.5; cursor:not-allowed; }
+  .btn-danger { background:#dc2626; color:#fff; padding:.25rem .55rem; border-radius:.4rem; font-size:.78rem; }
+  .btn-danger:hover{ background:#b91c1c; }
+  .btn-emerald { background:#059669; color:#fff; padding:.5rem 1rem; border-radius:.5rem; font-size:.9rem; font-weight:500; }
+  .btn-emerald:hover{ background:#047857; }
+  .ghost { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); padding:.5rem .9rem; border-radius:.5rem; font-size:.9rem; }
+  .ghost:hover{ background: rgba(255,255,255,.1); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+/* ============================================================ */
+const API_URL = 'https://script.google.com/macros/s/AKfycbw8cZvKCy8pfnuSvemiISNSKf6We19U_nVhGDHqFKFL1FDifZraYJORQ3iKGECx6uiwuQ/exec';
+const CURRENCY = '₾';
+/* ============================================================ */
+
+const pad = n => (n < 10 ? '0' + n : '' + n);
+const fmt = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+const shortDM = d => pad(d.getDate()) + '.' + pad(d.getMonth() + 1);
+const today = () => fmt(new Date());
+
+function mondayOf(d) {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dow = x.getDay();
+  const delta = dow === 0 ? -6 : 1 - dow;
+  x.setDate(x.getDate() + delta);
+  return x;
+}
+function weeksOfYear(year) {
+  const t = new Date();
+  let cursor = mondayOf(new Date(year, 0, 1));
+  if (cursor.getFullYear() < year) cursor.setDate(cursor.getDate() + 7);
+  const out = [];
+  let n = 1;
+  while (cursor.getFullYear() === year && cursor <= t) {
+    const start = new Date(cursor);
+    const end = new Date(cursor); end.setDate(end.getDate() + 6);
+    out.push({ n: n++, start: fmt(start), end: fmt(end), label: shortDM(start) + '–' + shortDM(end) });
+    cursor.setDate(cursor.getDate() + 7);
+  }
+  return out;
+}
+function currentWeekRange() {
+  const m = mondayOf(new Date());
+  const e = new Date(m); e.setDate(e.getDate() + 6);
+  return { from: fmt(m), to: fmt(e) };
+}
+
+const fmtMoney = n => (n == null || isNaN(n)) ? '—'
+  : new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+const fmtInt = n => (n == null || isNaN(n)) ? '—' : new Intl.NumberFormat('ru-RU').format(n);
+
+/* ============================================================
+ *  API
+ * ============================================================ */
+async function apiGet(action, params = {}) {
+  const url = new URL(API_URL);
+  url.searchParams.set('action', action);
+  for (const k in params) if (params[k] != null) url.searchParams.set(k, params[k]);
+  const r = await fetch(url.toString(), { method: 'GET', redirect: 'follow' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const json = await r.json();
+  if (json.error) throw new Error(json.error);
+  return json;
+}
+async function apiPost(payload) {
+  // text/plain → не триггерит CORS preflight в Apps Script Web App
+  const r = await fetch(API_URL, {
+    method: 'POST', redirect: 'follow',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(payload)
+  });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const json = await r.json();
+  if (json.error) throw new Error(json.error);
+  return json;
+}
+
+/* ============================================================
+ *  XLSX export (вкладка «Отчёт»)
+ * ============================================================ */
+function exportXlsx(report) {
+  const period = report.period;
+  const sup = report.supplierFilter || 'All';
+  const headers = [
+    'Дата', 'supplier_name', 'product_name', 'product_sku', 'product_barcode',
+    'product_categories', 'product_brand_name',
+    'Кол-во проданных', 'Кол-во возвращенных', 'net_sold_measurement_value',
+    'gross_sales', 'returned_sales_sum', 'net_sales', 'net_profit',
+    'sold_supply_sum', 'average_margin', 'discount',
+    'Cashback %', 'Cashback'
+  ];
+  const aoa = [headers];
+  report.rows.forEach((r, idx) => {
+    aoa.push([
+      period, r.supplierName, r.name, r.sku, r.barcode, r.categories, r.brand,
+      r.soldQty, r.returnedQty, r.netSoldQty,
+      r.grossSales, r.returnedSalesSum, r.netSales, r.netProfit,
+      r.soldSupplySum, r.averageMargin || 0, r.discount,
+      r.cashbackRate,
+      { f: `O${idx + 2}/100*${r.cashbackRate}` }
+    ]);
+  });
+  const last = report.rows.length + 1;
+  aoa.push(['', '', '', '', '', '', '',
+    { f: `SUM(H2:H${last})` }, { f: `SUM(I2:I${last})` }, { f: `SUM(J2:J${last})` },
+    { f: `SUM(K2:K${last})` }, { f: `SUM(L2:L${last})` }, { f: `SUM(M2:M${last})` },
+    { f: `SUM(N2:N${last})` }, { f: `SUM(O2:O${last})` }, '', '',
+    '', { f: `SUM(S2:S${last})` }
+  ]);
+  const sumRowIdx = last + 1;
+  aoa.push([]);
+  const totalRow = new Array(19).fill('');
+  totalRow[16] = 'К оплате (Закупка − Cashback):';
+  totalRow[18] = { f: `O${sumRowIdx}-S${sumRowIdx}` };
+  aoa.push(totalRow);
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [
+    { wch: 22 }, { wch: 18 }, { wch: 42 }, { wch: 12 }, { wch: 14 },
+    { wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
+    { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 14 },
+    { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 12 }
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Report');
+  const safeSup = sup.replace(/[^A-Za-zА-Яа-я0-9_-]+/g, '_');
+  const safePer = period.replace(/\s/g, '');
+  XLSX.writeFile(wb, `Отчет_${safeSup}_${safePer}.xlsx`);
+}
+
+/* ============================================================
+ *  App
+ * ============================================================ */
+function App() {
+  const year = new Date().getFullYear();
+  const [tab, setTab] = React.useState('sales'); // 'sales' | 'payments' | 'recon'
+  const [suppliers, setSuppliers] = React.useState([]);
+  const [supplier, setSupplier] = React.useState('');
+  const [error, setError] = React.useState('');
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const r = await apiGet('getConfiguredSuppliers');
+        setSuppliers(r.suppliers || []);
+        if (r.suppliers && r.suppliers.length === 1) setSupplier(r.suppliers[0]);
+      } catch (e) { setError('Список поставщиков: ' + e.message); }
+    })();
+  }, []);
+
+  return (
+    <div className="min-h-screen px-4 py-6 md:px-8">
+      <header className="max-w-7xl mx-auto mb-4">
+        <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">Учёт по поставщикам</h1>
+        <p className="text-slate-400 text-sm mt-1">Gorilla Mafia · автообновление продаж в 11:00 (Тбилиси)</p>
+      </header>
+
+      <div className="max-w-7xl mx-auto mb-3 flex flex-wrap items-end gap-3">
+        <label className="flex items-center gap-2">
+          <span className="text-xs text-slate-400">Поставщик</span>
+          <select value={supplier} onChange={e => setSupplier(e.target.value)} className="min-w-[200px]">
+            <option value="">— все —</option>
+            {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <nav className="max-w-7xl mx-auto flex gap-1 border-b border-white/10 mb-0 px-1">
+        <div className={'tab ' + (tab === 'sales' ? 'active' : '')} onClick={() => setTab('sales')}>📦 Отчёт продаж</div>
+        <div className={'tab ' + (tab === 'payments' ? 'active' : '')} onClick={() => setTab('payments')}>💳 Платежи</div>
+        <div className={'tab ' + (tab === 'recon' ? 'active' : '')} onClick={() => setTab('recon')}>📊 Сверка</div>
+      </nav>
+
+      {error && (
+        <div className="max-w-7xl mx-auto my-3 px-4 py-3 rounded-lg bg-red-900/40 border border-red-700 text-red-200 text-sm">
+          {error}
+        </div>
+      )}
+
+      <main className="max-w-7xl mx-auto py-4">
+        {tab === 'sales'    && <SalesTab supplier={supplier} year={year} setError={setError} />}
+        {tab === 'payments' && <PaymentsTab supplier={supplier} setError={setError} />}
+        {tab === 'recon'    && <ReconTab supplier={supplier} year={year} setError={setError} />}
+      </main>
+    </div>
+  );
+}
+
+/* ============================================================
+ *  TAB: SALES (без существенных изменений)
+ * ============================================================ */
+function SalesTab({ supplier, year, setError }) {
+  const initial = currentWeekRange();
+  const [from, setFrom] = React.useState(initial.from);
+  const [to, setTo]     = React.useState(initial.to);
+  const [report, setReport] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  const [refreshing, setRefreshing] = React.useState(false);
+  const [activeWeek, setActiveWeek] = React.useState(null);
+  const weeks = React.useMemo(() => weeksOfYear(year), [year]);
+
+  React.useEffect(() => {
+    const cur = weeks.find(w => w.start === initial.from && w.end === initial.to);
+    if (cur) setActiveWeek(cur.n);
+    load(initial.from, initial.to);
+  }, [supplier]);
+
+  async function load(f, t) {
+    setLoading(true); setError('');
+    try { setReport(await apiGet('getSupplierReport', { from: f, to: t, supplier })); }
+    catch (e) { setError('Отчёт продаж: ' + e.message); }
+    finally { setLoading(false); }
+  }
+  async function refreshFromBillz() {
+    setRefreshing(true); setError('');
+    try { await apiGet('refreshRange', { from, to }); await load(from, to); }
+    catch (e) { setError('Sync: ' + e.message); }
+    finally { setRefreshing(false); }
+  }
+  function pickWeek(w) { setFrom(w.start); setTo(w.end); setActiveWeek(w.n); load(w.start, w.end); }
+
+  return (
+    <>
+      <section className="glass rounded-2xl p-4 md:p-5 mb-5">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+          <label className="md:col-span-3">
+            <div className="text-xs text-slate-400 mb-1">С даты</div>
+            <input type="date" value={from} onChange={e => { setFrom(e.target.value); setActiveWeek(null); }} className="w-full" />
+          </label>
+          <label className="md:col-span-3">
+            <div className="text-xs text-slate-400 mb-1">По дату</div>
+            <input type="date" value={to} onChange={e => { setTo(e.target.value); setActiveWeek(null); }} className="w-full" />
+          </label>
+          <div className="md:col-span-3">
+            <button onClick={() => load(from, to)} disabled={loading} className="btn-primary w-full">
+              {loading ? 'Загрузка…' : 'Сформировать'}
+            </button>
+          </div>
+          <div className="md:col-span-3 flex gap-2">
+            <button onClick={refreshFromBillz} disabled={refreshing} className="ghost flex-1">
+              {refreshing ? 'Sync…' : '↻ Догрузить'}
+            </button>
+            <button onClick={() => exportXlsx(report)} disabled={!report || !report.rows.length} className="btn-emerald flex-1">⤓ .xlsx</button>
+          </div>
+        </div>
+        <div className="mt-4">
+          <div className="text-xs text-slate-400 mb-2">Недели {year} (Пн–Вс)</div>
+          <div className="week-strip">
+            {weeks.map(w => (
+              <button key={w.n} onClick={() => pickWeek(w)} title={w.start + ' → ' + w.end}
+                      className={'pill px-3 py-1.5 rounded-md text-xs flex-shrink-0 ' + (activeWeek === w.n ? 'active' : '')}>
+                <span className="font-mono">W{w.n}</span> · {w.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {report && (
+        <section className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-5">
+          <Stat label="Период" value={report.period} mono />
+          <Stat label="Поставщик" value={report.supplierFilter || 'все'} />
+          <Stat label="Выручка (net)" value={fmtMoney(report.totals.netSales) + ' ' + CURRENCY} />
+          <Stat label="Закупка" value={fmtMoney(report.totals.soldSupplySum) + ' ' + CURRENCY} />
+          <Stat label="Cashback" value={fmtMoney(report.totals.cashback) + ' ' + CURRENCY} accent />
+          <Stat label="К оплате (Зак.−CB)" value={fmtMoney(report.totals.toPaySupplier) + ' ' + CURRENCY} bold />
+        </section>
+      )}
+
+      <section className="glass rounded-2xl p-2 md:p-3">
+        <div className="scroll-x">
+          <table className="w-full text-sm">
+            <thead className="text-slate-400">
+              <tr>
+                <th className="text-left  px-3 py-2">Товар</th>
+                <th className="text-left  px-3 py-2">Артикул</th>
+                <th className="text-left  px-3 py-2">Бренд</th>
+                <th className="text-right px-3 py-2">Кол-во</th>
+                <th className="text-right px-3 py-2">Возвр.</th>
+                <th className="text-right px-3 py-2">Выручка</th>
+                <th className="text-right px-3 py-2">Закупка</th>
+                <th className="text-right px-3 py-2">CB %</th>
+                <th className="text-right px-3 py-2">Cashback</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(!report || !report.rows.length) && (
+                <tr><td colSpan={9} className="text-center text-slate-500 py-10">{loading ? 'Загрузка…' : 'Нет данных за период'}</td></tr>
+              )}
+              {report && report.rows.map(r => {
+                const overridden = r.cashbackRate !== 10;
+                return (
+                  <tr key={r.sku} className="border-t border-white/5">
+                    <td className="px-3 py-2">{r.name}</td>
+                    <td className="px-3 py-2 font-mono text-slate-300">{r.sku}</td>
+                    <td className="px-3 py-2 text-slate-400">{r.brand}</td>
+                    <td className="num px-3 py-2">{fmtInt(r.soldQty)}</td>
+                    <td className="num px-3 py-2 text-slate-500">{fmtInt(r.returnedQty)}</td>
+                    <td className="num px-3 py-2">{fmtMoney(r.netSales)}</td>
+                    <td className="num px-3 py-2 text-slate-300">{fmtMoney(r.soldSupplySum)}</td>
+                    <td className={'num px-3 py-2 ' + (overridden ? 'text-amber-300 font-medium' : 'text-slate-400')}>{r.cashbackRate}%</td>
+                    <td className="num px-3 py-2 text-emerald-300 font-medium">{fmtMoney(r.cashback)}</td>
+                  </tr>
+                );
+              })}
+              {report && report.rows.length > 0 && (
+                <tr className="border-t-2 border-white/20 font-semibold">
+                  <td className="px-3 py-2" colSpan={3}>Итого</td>
+                  <td className="num px-3 py-2">{fmtInt(report.totals.soldQty)}</td>
+                  <td className="num px-3 py-2 text-slate-500">{fmtInt(report.totals.returnedQty)}</td>
+                  <td className="num px-3 py-2">{fmtMoney(report.totals.netSales)}</td>
+                  <td className="num px-3 py-2">{fmtMoney(report.totals.soldSupplySum)}</td>
+                  <td></td>
+                  <td className="num px-3 py-2 text-emerald-300">{fmtMoney(report.totals.cashback)}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
+  );
+}
+
+/* ============================================================
+ *  TAB: PAYMENTS — admin
+ * ============================================================ */
+function PaymentsTab({ supplier, setError }) {
+  const [pin, setPin] = React.useState('');
+  return (
+    <>
+      <section className="glass rounded-2xl p-4 md:p-5 mb-5">
+        <div className="flex flex-wrap items-end gap-3">
+          <label>
+            <div className="text-xs text-slate-400 mb-1">PIN администратора</div>
+            <input type="password" value={pin} onChange={e => setPin(e.target.value)} placeholder="••••" className="w-40" />
+          </label>
+          <p className="text-xs text-slate-500 max-w-md">
+            PIN задаётся в Apps Script (константа <code className="text-slate-300">ADMIN_PIN</code>).
+            Если в коде PIN пустой — поле можно оставить пустым, но просмотр всё равно работает у всех с URL.
+          </p>
+        </div>
+      </section>
+
+      {!supplier && (
+        <div className="glass rounded-2xl p-6 text-center text-slate-400">
+          Выберите поставщика в фильтре сверху, чтобы вести учёт его платежей.
+        </div>
+      )}
+
+      {supplier && (
+        <div className="grid md:grid-cols-2 gap-5">
+          <PaymentBlock title="💸 Оплата поставщику" type="supplier" supplier={supplier} pin={pin} setError={setError} />
+          <PaymentBlock title="🎁 Полученный кешбек" type="cashback" supplier={supplier} pin={pin} setError={setError} />
+        </div>
+      )}
+    </>
+  );
+}
+
+function PaymentBlock({ title, type, supplier, pin, setError }) {
+  const [items, setItems] = React.useState([]);
+  const [loading, setLoading] = React.useState(false);
+  const [date, setDate] = React.useState(today());
+  const [amount, setAmount] = React.useState('');
+  const [note, setNote] = React.useState('');
+  const [submitting, setSubmitting] = React.useState(false);
+
+  async function reload() {
+    setLoading(true);
+    try {
+      const r = await apiGet('listPayments', { type, supplier });
+      setItems(r.rows || []);
+    } catch (e) { setError(title + ': ' + e.message); }
+    finally { setLoading(false); }
+  }
+  React.useEffect(() => { if (supplier) reload(); }, [type, supplier]);
+
+  async function add() {
+    if (!amount || !date) return;
+    setSubmitting(true); setError('');
+    try {
+      await apiPost({ action: 'addPayment', type, supplier, date, amount: Number(amount), note, pin });
+      setAmount(''); setNote('');
+      reload();
+    } catch (e) { setError(title + ': ' + e.message); }
+    finally { setSubmitting(false); }
+  }
+  async function remove(id) {
+    if (!confirm('Удалить эту запись?')) return;
+    try { await apiPost({ action: 'deletePayment', type, id, pin }); reload(); }
+    catch (e) { setError(title + ': ' + e.message); }
+  }
+
+  const total = items.reduce((s, x) => s + (x.amount || 0), 0);
+
+  return (
+    <section className="glass rounded-2xl p-4 md:p-5">
+      <h3 className="text-lg font-medium mb-1">{title}</h3>
+      <p className="text-xs text-slate-400 mb-4">{supplier}</p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 mb-4">
+        <input type="date" value={date} onChange={e => setDate(e.target.value)} className="sm:col-span-3" />
+        <input type="number" step="0.01" min="0" placeholder="Сумма" value={amount} onChange={e => setAmount(e.target.value)} className="sm:col-span-3" />
+        <input type="text" placeholder="Комментарий (опционально)" value={note} onChange={e => setNote(e.target.value)} className="sm:col-span-4" />
+        <button onClick={add} disabled={submitting || !amount} className="btn-primary sm:col-span-2">
+          {submitting ? '…' : '+ Добавить'}
+        </button>
+      </div>
+
+      <div className="rounded-xl border border-white/5 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="text-slate-400 bg-slate-900/50">
+            <tr>
+              <th className="text-left  px-3 py-2 w-28">Дата</th>
+              <th className="text-right px-3 py-2 w-32">Сумма</th>
+              <th className="text-left  px-3 py-2">Комментарий</th>
+              <th className="px-3 py-2 w-12"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && <tr><td colSpan={4} className="text-center text-slate-500 py-6">Загрузка…</td></tr>}
+            {!loading && !items.length && <tr><td colSpan={4} className="text-center text-slate-500 py-6">Записей пока нет</td></tr>}
+            {items.map(it => (
+              <tr key={it.id} className="border-t border-white/5">
+                <td className="px-3 py-2 font-mono text-slate-300">{it.date}</td>
+                <td className="num px-3 py-2 font-medium">{fmtMoney(it.amount)} {CURRENCY}</td>
+                <td className="px-3 py-2 text-slate-400">{it.note || <span className="text-slate-600">—</span>}</td>
+                <td className="px-3 py-2 text-right">
+                  <button className="btn-danger" onClick={() => remove(it.id)} title={it.enteredAt}>✕</button>
+                </td>
+              </tr>
+            ))}
+            {items.length > 0 && (
+              <tr className="border-t-2 border-white/20 font-semibold bg-slate-900/30">
+                <td className="px-3 py-2">Итого</td>
+                <td className="num px-3 py-2 text-blue-300">{fmtMoney(total)} {CURRENCY}</td>
+                <td colSpan={2} className="px-3 py-2 text-slate-500 text-xs">{items.length} записей</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+/* ============================================================
+ *  TAB: RECONCILIATION
+ * ============================================================ */
+function ReconTab({ supplier, year, setError }) {
+  const yearStart = year + '-01-01';
+  const [from, setFrom] = React.useState(yearStart);
+  const [to, setTo] = React.useState(today());
+  const [data, setData] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+
+  async function load() {
+    setLoading(true); setError('');
+    try { setData(await apiGet('getReconciliation', { from, to, supplier })); }
+    catch (e) { setError('Сверка: ' + e.message); }
+    finally { setLoading(false); }
+  }
+  React.useEffect(() => { load(); }, [supplier]);
+
+  return (
+    <>
+      <section className="glass rounded-2xl p-4 md:p-5 mb-5">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+          <label className="md:col-span-4">
+            <div className="text-xs text-slate-400 mb-1">С даты</div>
+            <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="w-full" />
+          </label>
+          <label className="md:col-span-4">
+            <div className="text-xs text-slate-400 mb-1">По дату</div>
+            <input type="date" value={to} onChange={e => setTo(e.target.value)} className="w-full" />
+          </label>
+          <div className="md:col-span-4">
+            <button onClick={load} disabled={loading} className="btn-primary w-full">
+              {loading ? 'Считаю…' : 'Пересчитать'}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {data && (
+        <>
+          <section className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
+            <Stat label="Закупка (продано)"  value={fmtMoney(data.totals.supply) + ' ' + CURRENCY} />
+            <Stat label="Cashback к получению" value={fmtMoney(data.totals.cashback) + ' ' + CURRENCY} accent />
+            <Stat label="Оплачено поставщику" value={fmtMoney(data.totals.supplierPaid) + ' ' + CURRENCY} />
+            <Stat label="Получен кешбек" value={fmtMoney(data.totals.cashbackPaid) + ' ' + CURRENCY} accent />
+            <Stat label="Чистый баланс" value={(data.totals.netBalance >= 0 ? 'Должны: ' : 'Переплата: ') + fmtMoney(Math.abs(data.totals.netBalance)) + ' ' + CURRENCY} bold />
+          </section>
+
+          <section className="grid grid-cols-2 md:grid-cols-2 gap-3 mb-5">
+            <Stat label="Долг поставщику (Закупка − Оплачено)" value={fmtMoney(data.totals.supplierDebt) + ' ' + CURRENCY} bold />
+            <Stat label="Долг по кешбеку (CB − Получено)" value={fmtMoney(data.totals.cashbackDebt) + ' ' + CURRENCY} bold accent />
+          </section>
+
+          <section className="glass rounded-2xl p-2 md:p-3">
+            <div className="scroll-x">
+              <table className="w-full text-sm">
+                <thead className="text-slate-400">
+                  <tr>
+                    <th className="text-left  px-3 py-2">Неделя</th>
+                    <th className="text-left  px-3 py-2">Период</th>
+                    <th className="text-right px-3 py-2">Закупка</th>
+                    <th className="text-right px-3 py-2">Cashback</th>
+                    <th className="text-right px-3 py-2">Оплач. пост.</th>
+                    <th className="text-right px-3 py-2">Получ. CB</th>
+                    <th className="text-right px-3 py-2">Долг пост.</th>
+                    <th className="text-right px-3 py-2">Долг CB</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {!data.weeks.length && (
+                    <tr><td colSpan={8} className="text-center text-slate-500 py-10">Нет данных за период</td></tr>
+                  )}
+                  {data.weeks.map(w => {
+                    const empty = !w.supply && !w.cashback && !w.supplierPaid && !w.cashbackPaid;
+                    return (
+                      <tr key={w.from} className={'border-t border-white/5 ' + (empty ? 'opacity-40' : '')}>
+                        <td className="px-3 py-2 font-mono">W{w.n}</td>
+                        <td className="px-3 py-2 text-slate-300">{w.from} → {w.to}</td>
+                        <td className="num px-3 py-2">{fmtMoney(w.supply)}</td>
+                        <td className="num px-3 py-2 text-emerald-300">{fmtMoney(w.cashback)}</td>
+                        <td className="num px-3 py-2 text-blue-300">{fmtMoney(w.supplierPaid)}</td>
+                        <td className="num px-3 py-2 text-amber-300">{fmtMoney(w.cashbackPaid)}</td>
+                        <td className={'num px-3 py-2 ' + (w.supplierDebt > 0 ? 'text-orange-300' : 'text-slate-500')}>{fmtMoney(w.supplierDebt)}</td>
+                        <td className={'num px-3 py-2 ' + (w.cashbackDebt > 0 ? 'text-amber-300' : 'text-slate-500')}>{fmtMoney(w.cashbackDebt)}</td>
+                      </tr>
+                    );
+                  })}
+                  {data.weeks.length > 0 && (
+                    <tr className="border-t-2 border-white/20 font-semibold">
+                      <td colSpan={2} className="px-3 py-2">Итого</td>
+                      <td className="num px-3 py-2">{fmtMoney(data.totals.supply)}</td>
+                      <td className="num px-3 py-2 text-emerald-300">{fmtMoney(data.totals.cashback)}</td>
+                      <td className="num px-3 py-2 text-blue-300">{fmtMoney(data.totals.supplierPaid)}</td>
+                      <td className="num px-3 py-2 text-amber-300">{fmtMoney(data.totals.cashbackPaid)}</td>
+                      <td className="num px-3 py-2 text-orange-300">{fmtMoney(data.totals.supplierDebt)}</td>
+                      <td className="num px-3 py-2 text-amber-300">{fmtMoney(data.totals.cashbackDebt)}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
+    </>
+  );
+}
+
+/* ============================================================
+ *  Reusable
+ * ============================================================ */
+function Stat({ label, value, mono, bold, accent }) {
+  return (
+    <div className="glass rounded-xl px-4 py-3">
+      <div className="text-xs text-slate-400">{label}</div>
+      <div className={`mt-0.5 ${bold ? 'text-lg font-semibold' : 'text-base'} ${mono ? 'font-mono' : ''} ${accent ? 'text-emerald-300' : ''}`}>{value}</div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
