@@ -118,45 +118,43 @@ async function apiPost(payload) {
 function exportXlsx(report) {
   const period = report.period;
   const sup = report.supplierFilter || 'All';
+  // Закупочная стоимость как единственная ценовая метрика; Cashback от неё.
   const headers = [
-    'Дата', 'supplier_name', 'product_name', 'product_sku', 'product_barcode',
-    'product_categories', 'product_brand_name',
-    'Кол-во проданных', 'Кол-во возвращенных', 'net_sold_measurement_value',
-    'gross_sales', 'returned_sales_sum', 'net_sales', 'net_profit',
-    'sold_supply_sum', 'average_margin', 'discount',
-    'Cashback %', 'Cashback'
+    'Дата', 'Поставщик', 'Товар', 'Артикул', 'Штрихкод',
+    'Категория', 'Бренд',
+    'Кол-во проданных', 'Возвраты', 'Чистое кол-во',
+    'Закупка',          // K
+    'Cashback %',       // L
+    'Cashback'          // M
   ];
   const aoa = [headers];
   report.rows.forEach((r, idx) => {
     aoa.push([
       period, r.supplierName, r.name, r.sku, r.barcode, r.categories, r.brand,
       r.soldQty, r.returnedQty, r.netSoldQty,
-      r.grossSales, r.returnedSalesSum, r.netSales, r.netProfit,
-      r.soldSupplySum, r.averageMargin || 0, r.discount,
+      r.soldSupplySum,
       r.cashbackRate,
-      { f: `O${idx + 2}/100*${r.cashbackRate}` }
+      { f: `K${idx + 2}/100*${r.cashbackRate}` }
     ]);
   });
   const last = report.rows.length + 1;
   aoa.push(['', '', '', '', '', '', '',
     { f: `SUM(H2:H${last})` }, { f: `SUM(I2:I${last})` }, { f: `SUM(J2:J${last})` },
-    { f: `SUM(K2:K${last})` }, { f: `SUM(L2:L${last})` }, { f: `SUM(M2:M${last})` },
-    { f: `SUM(N2:N${last})` }, { f: `SUM(O2:O${last})` }, '', '',
-    '', { f: `SUM(S2:S${last})` }
+    { f: `SUM(K2:K${last})` }, '',
+    { f: `SUM(M2:M${last})` }
   ]);
   const sumRowIdx = last + 1;
   aoa.push([]);
-  const totalRow = new Array(19).fill('');
-  totalRow[16] = 'К оплате (Закупка − Cashback):';
-  totalRow[18] = { f: `O${sumRowIdx}-S${sumRowIdx}` };
+  const totalRow = new Array(13).fill('');
+  totalRow[10] = 'К оплате (Закупка − Cashback):';
+  totalRow[12] = { f: `K${sumRowIdx}-M${sumRowIdx}` };
   aoa.push(totalRow);
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = [
     { wch: 22 }, { wch: 18 }, { wch: 42 }, { wch: 12 }, { wch: 14 },
-    { wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
-    { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 14 },
-    { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 12 }
+    { wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 12 },
+    { wch: 12 }, { wch: 10 }, { wch: 12 }
   ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Report');
@@ -294,10 +292,9 @@ function SalesTab({ supplier, year, setError }) {
       </section>
 
       {report && (
-        <section className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-5">
+        <section className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
           <Stat label="Период" value={report.period} mono />
           <Stat label="Поставщик" value={report.supplierFilter || 'все'} />
-          <Stat label="Выручка (net)" value={fmtMoney(report.totals.netSales) + ' ' + CURRENCY} />
           <Stat label="Закупка" value={fmtMoney(report.totals.soldSupplySum) + ' ' + CURRENCY} />
           <Stat label="Cashback" value={fmtMoney(report.totals.cashback) + ' ' + CURRENCY} accent />
           <Stat label="К оплате (Зак.−CB)" value={fmtMoney(report.totals.toPaySupplier) + ' ' + CURRENCY} bold />
@@ -314,7 +311,6 @@ function SalesTab({ supplier, year, setError }) {
                 <th className="text-left  px-3 py-2">Бренд</th>
                 <th className="text-right px-3 py-2">Кол-во</th>
                 <th className="text-right px-3 py-2">Возвр.</th>
-                <th className="text-right px-3 py-2">Выручка</th>
                 <th className="text-right px-3 py-2">Закупка</th>
                 <th className="text-right px-3 py-2">CB %</th>
                 <th className="text-right px-3 py-2">Cashback</th>
@@ -322,7 +318,7 @@ function SalesTab({ supplier, year, setError }) {
             </thead>
             <tbody>
               {(!report || !report.rows.length) && (
-                <tr><td colSpan={9} className="text-center text-slate-500 py-10">{loading ? 'Загрузка…' : 'Нет данных за период'}</td></tr>
+                <tr><td colSpan={8} className="text-center text-slate-500 py-10">{loading ? 'Загрузка…' : 'Нет данных за период'}</td></tr>
               )}
               {report && report.rows.map(r => {
                 const overridden = r.cashbackRate !== 10;
@@ -333,7 +329,6 @@ function SalesTab({ supplier, year, setError }) {
                     <td className="px-3 py-2 text-slate-400">{r.brand}</td>
                     <td className="num px-3 py-2">{fmtInt(r.soldQty)}</td>
                     <td className="num px-3 py-2 text-slate-500">{fmtInt(r.returnedQty)}</td>
-                    <td className="num px-3 py-2">{fmtMoney(r.netSales)}</td>
                     <td className="num px-3 py-2 text-slate-300">{fmtMoney(r.soldSupplySum)}</td>
                     <td className={'num px-3 py-2 ' + (overridden ? 'text-amber-300 font-medium' : 'text-slate-400')}>{r.cashbackRate}%</td>
                     <td className="num px-3 py-2 text-emerald-300 font-medium">{fmtMoney(r.cashback)}</td>
@@ -345,7 +340,6 @@ function SalesTab({ supplier, year, setError }) {
                   <td className="px-3 py-2" colSpan={3}>Итого</td>
                   <td className="num px-3 py-2">{fmtInt(report.totals.soldQty)}</td>
                   <td className="num px-3 py-2 text-slate-500">{fmtInt(report.totals.returnedQty)}</td>
-                  <td className="num px-3 py-2">{fmtMoney(report.totals.netSales)}</td>
                   <td className="num px-3 py-2">{fmtMoney(report.totals.soldSupplySum)}</td>
                   <td></td>
                   <td className="num px-3 py-2 text-emerald-300">{fmtMoney(report.totals.cashback)}</td>
