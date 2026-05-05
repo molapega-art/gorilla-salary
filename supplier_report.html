@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Gorilla Mafia — Отчёт по поставщикам</title>
+<title>Global Bridges — Gorilla Mafia</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -39,6 +39,9 @@
   .btn-emerald:hover{ background:#047857; }
   .ghost { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); padding:.5rem .9rem; border-radius:.5rem; font-size:.9rem; }
   .ghost:hover{ background: rgba(255,255,255,.1); }
+  .lang-btn { padding: .25rem .65rem; border-radius: .35rem; font-size: .75rem; font-weight: 600; cursor: pointer;
+              background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); }
+  .lang-btn.active { background: #2563eb; border-color: #2563eb; color: white; }
 </style>
 </head>
 <body>
@@ -47,9 +50,159 @@
 <script type="text/babel">
 /* ============================================================ */
 const API_URL = 'https://script.google.com/macros/s/AKfycbw8cZvKCy8pfnuSvemiISNSKf6We19U_nVhGDHqFKFL1FDifZraYJORQ3iKGECx6uiwuQ/exec';
+const SUPPLIER = 'Global Bridges';
 const CURRENCY = '₾';
 /* ============================================================ */
 
+/* ============================================================
+ *  i18n
+ * ============================================================ */
+const STRINGS = {
+  ru: {
+    title: 'Global Bridges — учёт',
+    subtitle: 'Gorilla Mafia · автообновление продаж в 11:00 (Тбилиси)',
+    tab_sales: '📦 Отчёт продаж',
+    tab_payments: '💳 Платежи',
+    tab_recon: '📊 Сверка',
+
+    from: 'С даты',
+    to: 'По дату',
+    btn_form: 'Сформировать',
+    btn_loading: 'Загрузка…',
+    btn_refresh: '↻ Догрузить',
+    btn_refreshing: 'Sync…',
+    btn_xlsx: '⤓ .xlsx',
+    weeks_of: 'Недели',
+    weeks_suffix: '(Пн–Вс)',
+
+    stat_period: 'Период',
+    stat_supplier: 'Поставщик',
+    stat_supply: 'Закупка',
+    stat_cashback: 'Cashback',
+    stat_to_pay: 'К оплате (Зак.−CB)',
+
+    col_product: 'Товар',
+    col_sku: 'Артикул',
+    col_brand: 'Бренд',
+    col_qty: 'Кол-во',
+    col_returned: 'Возвр.',
+    col_supply: 'Закупка',
+    col_cb_pct: 'CB %',
+    col_cashback: 'Cashback',
+    total: 'Итого',
+    no_data: 'Нет данных за период',
+
+    pin_label: 'PIN администратора',
+    pin_help: 'PIN задаётся в Apps Script (константа ADMIN_PIN). Если в коде PIN пустой — поле можно оставить пустым, но просмотр всё равно работает у всех с URL.',
+    title_supplier_payment: '💸 Оплата поставщику',
+    title_cashback_received: '🎁 Полученный кешбек',
+    payment_date: 'Дата',
+    payment_amount: 'Сумма',
+    payment_note: 'Комментарий (опционально)',
+    payment_comment: 'Комментарий',
+    btn_add: '+ Добавить',
+    btn_adding: '…',
+    delete_confirm: 'Удалить эту запись?',
+    no_records: 'Записей пока нет',
+    records_count: ' записей',
+    p_loading: 'Загрузка…',
+
+    btn_recalc: 'Пересчитать',
+    btn_recalc_loading: 'Считаю…',
+    stat_supply_sold: 'Закупка (продано)',
+    stat_cashback_due: 'Cashback к получению',
+    stat_supplier_paid: 'Оплачено поставщику',
+    stat_cashback_received: 'Получен кешбек',
+    stat_balance: 'Чистый баланс',
+    balance_owe: 'Должны: ',
+    balance_overpaid: 'Переплата: ',
+    stat_supplier_debt: 'Долг поставщику (Закупка − Оплачено)',
+    stat_cashback_debt: 'Долг по кешбеку (CB − Получено)',
+    col_week: 'Неделя',
+    col_period_short: 'Период',
+    col_paid_short: 'Оплач. пост.',
+    col_received_short: 'Получ. CB',
+    col_debt_supplier: 'Долг пост.',
+    col_debt_cb: 'Долг CB',
+    err_sales: 'Отчёт продаж: ',
+    err_sync: 'Синхронизация: ',
+    err_recon: 'Сверка: '
+  },
+  en: {
+    title: 'Global Bridges — accounting',
+    subtitle: 'Gorilla Mafia · sales auto-sync at 11:00 (Tbilisi)',
+    tab_sales: '📦 Sales report',
+    tab_payments: '💳 Payments',
+    tab_recon: '📊 Reconciliation',
+
+    from: 'From',
+    to: 'To',
+    btn_form: 'Generate',
+    btn_loading: 'Loading…',
+    btn_refresh: '↻ Pull from Billz',
+    btn_refreshing: 'Syncing…',
+    btn_xlsx: '⤓ .xlsx',
+    weeks_of: 'Weeks',
+    weeks_suffix: '(Mon–Sun)',
+
+    stat_period: 'Period',
+    stat_supplier: 'Supplier',
+    stat_supply: 'Cost',
+    stat_cashback: 'Cashback',
+    stat_to_pay: 'Net to pay (Cost−CB)',
+
+    col_product: 'Product',
+    col_sku: 'SKU',
+    col_brand: 'Brand',
+    col_qty: 'Qty',
+    col_returned: 'Ret.',
+    col_supply: 'Cost',
+    col_cb_pct: 'CB %',
+    col_cashback: 'Cashback',
+    total: 'Total',
+    no_data: 'No data for this period',
+
+    pin_label: 'Admin PIN',
+    pin_help: 'PIN is set in Apps Script (ADMIN_PIN constant). If empty in code — leave the field blank; viewing still works for anyone with the URL.',
+    title_supplier_payment: '💸 Paid to supplier',
+    title_cashback_received: '🎁 Cashback received',
+    payment_date: 'Date',
+    payment_amount: 'Amount',
+    payment_note: 'Comment (optional)',
+    payment_comment: 'Comment',
+    btn_add: '+ Add',
+    btn_adding: '…',
+    delete_confirm: 'Delete this record?',
+    no_records: 'No records yet',
+    records_count: ' records',
+    p_loading: 'Loading…',
+
+    btn_recalc: 'Recalculate',
+    btn_recalc_loading: 'Computing…',
+    stat_supply_sold: 'Cost of goods sold',
+    stat_cashback_due: 'Cashback owed',
+    stat_supplier_paid: 'Paid to supplier',
+    stat_cashback_received: 'Cashback received',
+    stat_balance: 'Net balance',
+    balance_owe: 'We owe: ',
+    balance_overpaid: 'Overpaid: ',
+    stat_supplier_debt: 'Supplier debt (Cost − Paid)',
+    stat_cashback_debt: 'Cashback debt (CB − Received)',
+    col_week: 'Week',
+    col_period_short: 'Period',
+    col_paid_short: 'Paid sup.',
+    col_received_short: 'Recv. CB',
+    col_debt_supplier: 'Sup. debt',
+    col_debt_cb: 'CB debt',
+    err_sales: 'Sales report: ',
+    err_sync: 'Sync: ',
+    err_recon: 'Reconciliation: '
+  }
+};
+
+/* ============================================================
+ *  Helpers
+ * ============================================================ */
 const pad = n => (n < 10 ? '0' + n : '' + n);
 const fmt = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
 const shortDM = d => pad(d.getDate()) + '.' + pad(d.getMonth() + 1);
@@ -100,7 +253,6 @@ async function apiGet(action, params = {}) {
   return json;
 }
 async function apiPost(payload) {
-  // text/plain → не триггерит CORS preflight в Apps Script Web App
   const r = await fetch(API_URL, {
     method: 'POST', redirect: 'follow',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -113,19 +265,17 @@ async function apiPost(payload) {
 }
 
 /* ============================================================
- *  XLSX export (вкладка «Отчёт»)
+ *  XLSX export
  * ============================================================ */
-function exportXlsx(report) {
+function exportXlsx(report, S) {
   const period = report.period;
-  const sup = report.supplierFilter || 'All';
-  // Закупочная стоимость как единственная ценовая метрика; Cashback от неё.
   const headers = [
-    'Дата', 'Поставщик', 'Товар', 'Артикул', 'Штрихкод',
-    'Категория', 'Бренд',
-    'Кол-во проданных', 'Возвраты', 'Чистое кол-во',
-    'Закупка',          // K
-    'Cashback %',       // L
-    'Cashback'          // M
+    S.col_product === 'Товар' ? 'Дата' : 'Date',
+    S.col_product === 'Товар' ? 'Поставщик' : 'Supplier',
+    S.col_product, S.col_sku, S.col_product === 'Товар' ? 'Штрихкод' : 'Barcode',
+    S.col_product === 'Товар' ? 'Категория' : 'Category', S.col_brand,
+    S.col_qty, S.col_returned, S.col_product === 'Товар' ? 'Чистое кол-во' : 'Net qty',
+    S.col_supply, S.col_cb_pct, S.col_cashback
   ];
   const aoa = [headers];
   report.rows.forEach((r, idx) => {
@@ -146,7 +296,7 @@ function exportXlsx(report) {
   const sumRowIdx = last + 1;
   aoa.push([]);
   const totalRow = new Array(13).fill('');
-  totalRow[10] = 'К оплате (Закупка − Cashback):';
+  totalRow[10] = S.stat_to_pay + ':';
   totalRow[12] = { f: `K${sumRowIdx}-M${sumRowIdx}` };
   aoa.push(totalRow);
 
@@ -158,9 +308,9 @@ function exportXlsx(report) {
   ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Report');
-  const safeSup = sup.replace(/[^A-Za-zА-Яа-я0-9_-]+/g, '_');
+  const safeSup = SUPPLIER.replace(/[^A-Za-zА-Яа-я0-9_-]+/g, '_');
   const safePer = period.replace(/\s/g, '');
-  XLSX.writeFile(wb, `Отчет_${safeSup}_${safePer}.xlsx`);
+  XLSX.writeFile(wb, `Report_${safeSup}_${safePer}.xlsx`);
 }
 
 /* ============================================================
@@ -168,42 +318,37 @@ function exportXlsx(report) {
  * ============================================================ */
 function App() {
   const year = new Date().getFullYear();
-  const [tab, setTab] = React.useState('sales'); // 'sales' | 'payments' | 'recon'
-  const [suppliers, setSuppliers] = React.useState([]);
-  const [supplier, setSupplier] = React.useState('');
+  const [tab, setTab] = React.useState('sales');
   const [error, setError] = React.useState('');
-
+  const [lang, setLang] = React.useState(() => {
+    try { return localStorage.getItem('gm.lang') || 'ru'; } catch { return 'ru'; }
+  });
   React.useEffect(() => {
-    (async () => {
-      try {
-        const r = await apiGet('getConfiguredSuppliers');
-        setSuppliers(r.suppliers || []);
-        if (r.suppliers && r.suppliers.length === 1) setSupplier(r.suppliers[0]);
-      } catch (e) { setError('Список поставщиков: ' + e.message); }
-    })();
-  }, []);
+    try { localStorage.setItem('gm.lang', lang); } catch {}
+    document.documentElement.lang = lang;
+  }, [lang]);
+
+  const S = STRINGS[lang];
 
   return (
     <div className="min-h-screen px-4 py-6 md:px-8">
       <header className="max-w-7xl mx-auto mb-4">
-        <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">Учёт по поставщикам</h1>
-        <p className="text-slate-400 text-sm mt-1">Gorilla Mafia · автообновление продаж в 11:00 (Тбилиси)</p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">{S.title}</h1>
+            <p className="text-slate-400 text-sm mt-1">{S.subtitle}</p>
+          </div>
+          <div className="flex gap-1">
+            <button className={'lang-btn ' + (lang==='ru' ? 'active' : '')} onClick={() => setLang('ru')}>RU</button>
+            <button className={'lang-btn ' + (lang==='en' ? 'active' : '')} onClick={() => setLang('en')}>EN</button>
+          </div>
+        </div>
       </header>
 
-      <div className="max-w-7xl mx-auto mb-3 flex flex-wrap items-end gap-3">
-        <label className="flex items-center gap-2">
-          <span className="text-xs text-slate-400">Поставщик</span>
-          <select value={supplier} onChange={e => setSupplier(e.target.value)} className="min-w-[200px]">
-            <option value="">— все —</option>
-            {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </label>
-      </div>
-
       <nav className="max-w-7xl mx-auto flex gap-1 border-b border-white/10 mb-0 px-1">
-        <div className={'tab ' + (tab === 'sales' ? 'active' : '')} onClick={() => setTab('sales')}>📦 Отчёт продаж</div>
-        <div className={'tab ' + (tab === 'payments' ? 'active' : '')} onClick={() => setTab('payments')}>💳 Платежи</div>
-        <div className={'tab ' + (tab === 'recon' ? 'active' : '')} onClick={() => setTab('recon')}>📊 Сверка</div>
+        <div className={'tab ' + (tab === 'sales' ? 'active' : '')} onClick={() => setTab('sales')}>{S.tab_sales}</div>
+        <div className={'tab ' + (tab === 'payments' ? 'active' : '')} onClick={() => setTab('payments')}>{S.tab_payments}</div>
+        <div className={'tab ' + (tab === 'recon' ? 'active' : '')} onClick={() => setTab('recon')}>{S.tab_recon}</div>
       </nav>
 
       {error && (
@@ -213,18 +358,18 @@ function App() {
       )}
 
       <main className="max-w-7xl mx-auto py-4">
-        {tab === 'sales'    && <SalesTab supplier={supplier} year={year} setError={setError} />}
-        {tab === 'payments' && <PaymentsTab supplier={supplier} setError={setError} />}
-        {tab === 'recon'    && <ReconTab supplier={supplier} year={year} setError={setError} />}
+        {tab === 'sales'    && <SalesTab year={year} setError={setError} S={S} />}
+        {tab === 'payments' && <PaymentsTab setError={setError} S={S} />}
+        {tab === 'recon'    && <ReconTab year={year} setError={setError} S={S} />}
       </main>
     </div>
   );
 }
 
 /* ============================================================
- *  TAB: SALES (без существенных изменений)
+ *  TAB: SALES
  * ============================================================ */
-function SalesTab({ supplier, year, setError }) {
+function SalesTab({ year, setError, S }) {
   const initial = currentWeekRange();
   const [from, setFrom] = React.useState(initial.from);
   const [to, setTo]     = React.useState(initial.to);
@@ -238,18 +383,18 @@ function SalesTab({ supplier, year, setError }) {
     const cur = weeks.find(w => w.start === initial.from && w.end === initial.to);
     if (cur) setActiveWeek(cur.n);
     load(initial.from, initial.to);
-  }, [supplier]);
+  }, []);
 
   async function load(f, t) {
     setLoading(true); setError('');
-    try { setReport(await apiGet('getSupplierReport', { from: f, to: t, supplier })); }
-    catch (e) { setError('Отчёт продаж: ' + e.message); }
+    try { setReport(await apiGet('getSupplierReport', { from: f, to: t, supplier: SUPPLIER })); }
+    catch (e) { setError(S.err_sales + e.message); }
     finally { setLoading(false); }
   }
   async function refreshFromBillz() {
     setRefreshing(true); setError('');
     try { await apiGet('refreshRange', { from, to }); await load(from, to); }
-    catch (e) { setError('Sync: ' + e.message); }
+    catch (e) { setError(S.err_sync + e.message); }
     finally { setRefreshing(false); }
   }
   function pickWeek(w) { setFrom(w.start); setTo(w.end); setActiveWeek(w.n); load(w.start, w.end); }
@@ -259,27 +404,27 @@ function SalesTab({ supplier, year, setError }) {
       <section className="glass rounded-2xl p-4 md:p-5 mb-5">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
           <label className="md:col-span-3">
-            <div className="text-xs text-slate-400 mb-1">С даты</div>
+            <div className="text-xs text-slate-400 mb-1">{S.from}</div>
             <input type="date" value={from} onChange={e => { setFrom(e.target.value); setActiveWeek(null); }} className="w-full" />
           </label>
           <label className="md:col-span-3">
-            <div className="text-xs text-slate-400 mb-1">По дату</div>
+            <div className="text-xs text-slate-400 mb-1">{S.to}</div>
             <input type="date" value={to} onChange={e => { setTo(e.target.value); setActiveWeek(null); }} className="w-full" />
           </label>
           <div className="md:col-span-3">
             <button onClick={() => load(from, to)} disabled={loading} className="btn-primary w-full">
-              {loading ? 'Загрузка…' : 'Сформировать'}
+              {loading ? S.btn_loading : S.btn_form}
             </button>
           </div>
           <div className="md:col-span-3 flex gap-2">
             <button onClick={refreshFromBillz} disabled={refreshing} className="ghost flex-1">
-              {refreshing ? 'Sync…' : '↻ Догрузить'}
+              {refreshing ? S.btn_refreshing : S.btn_refresh}
             </button>
-            <button onClick={() => exportXlsx(report)} disabled={!report || !report.rows.length} className="btn-emerald flex-1">⤓ .xlsx</button>
+            <button onClick={() => exportXlsx(report, S)} disabled={!report || !report.rows.length} className="btn-emerald flex-1">{S.btn_xlsx}</button>
           </div>
         </div>
         <div className="mt-4">
-          <div className="text-xs text-slate-400 mb-2">Недели {year} (Пн–Вс)</div>
+          <div className="text-xs text-slate-400 mb-2">{S.weeks_of} {year} {S.weeks_suffix}</div>
           <div className="week-strip">
             {weeks.map(w => (
               <button key={w.n} onClick={() => pickWeek(w)} title={w.start + ' → ' + w.end}
@@ -293,11 +438,11 @@ function SalesTab({ supplier, year, setError }) {
 
       {report && (
         <section className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
-          <Stat label="Период" value={report.period} mono />
-          <Stat label="Поставщик" value={report.supplierFilter || 'все'} />
-          <Stat label="Закупка" value={fmtMoney(report.totals.soldSupplySum) + ' ' + CURRENCY} />
-          <Stat label="Cashback" value={fmtMoney(report.totals.cashback) + ' ' + CURRENCY} accent />
-          <Stat label="К оплате (Зак.−CB)" value={fmtMoney(report.totals.toPaySupplier) + ' ' + CURRENCY} bold />
+          <Stat label={S.stat_period} value={report.period} mono />
+          <Stat label={S.stat_supplier} value={SUPPLIER} />
+          <Stat label={S.stat_supply} value={fmtMoney(report.totals.soldSupplySum) + ' ' + CURRENCY} />
+          <Stat label={S.stat_cashback} value={fmtMoney(report.totals.cashback) + ' ' + CURRENCY} accent />
+          <Stat label={S.stat_to_pay} value={fmtMoney(report.totals.toPaySupplier) + ' ' + CURRENCY} bold />
         </section>
       )}
 
@@ -306,19 +451,19 @@ function SalesTab({ supplier, year, setError }) {
           <table className="w-full text-sm">
             <thead className="text-slate-400">
               <tr>
-                <th className="text-left  px-3 py-2">Товар</th>
-                <th className="text-left  px-3 py-2">Артикул</th>
-                <th className="text-left  px-3 py-2">Бренд</th>
-                <th className="text-right px-3 py-2">Кол-во</th>
-                <th className="text-right px-3 py-2">Возвр.</th>
-                <th className="text-right px-3 py-2">Закупка</th>
-                <th className="text-right px-3 py-2">CB %</th>
-                <th className="text-right px-3 py-2">Cashback</th>
+                <th className="text-left  px-3 py-2">{S.col_product}</th>
+                <th className="text-left  px-3 py-2">{S.col_sku}</th>
+                <th className="text-left  px-3 py-2">{S.col_brand}</th>
+                <th className="text-right px-3 py-2">{S.col_qty}</th>
+                <th className="text-right px-3 py-2">{S.col_returned}</th>
+                <th className="text-right px-3 py-2">{S.col_supply}</th>
+                <th className="text-right px-3 py-2">{S.col_cb_pct}</th>
+                <th className="text-right px-3 py-2">{S.col_cashback}</th>
               </tr>
             </thead>
             <tbody>
               {(!report || !report.rows.length) && (
-                <tr><td colSpan={8} className="text-center text-slate-500 py-10">{loading ? 'Загрузка…' : 'Нет данных за период'}</td></tr>
+                <tr><td colSpan={8} className="text-center text-slate-500 py-10">{loading ? S.btn_loading : S.no_data}</td></tr>
               )}
               {report && report.rows.map(r => {
                 const overridden = r.cashbackRate !== 10;
@@ -337,7 +482,7 @@ function SalesTab({ supplier, year, setError }) {
               })}
               {report && report.rows.length > 0 && (
                 <tr className="border-t-2 border-white/20 font-semibold">
-                  <td className="px-3 py-2" colSpan={3}>Итого</td>
+                  <td className="px-3 py-2" colSpan={3}>{S.total}</td>
                   <td className="num px-3 py-2">{fmtInt(report.totals.soldQty)}</td>
                   <td className="num px-3 py-2 text-slate-500">{fmtInt(report.totals.returnedQty)}</td>
                   <td className="num px-3 py-2">{fmtMoney(report.totals.soldSupplySum)}</td>
@@ -354,42 +499,31 @@ function SalesTab({ supplier, year, setError }) {
 }
 
 /* ============================================================
- *  TAB: PAYMENTS — admin
+ *  TAB: PAYMENTS
  * ============================================================ */
-function PaymentsTab({ supplier, setError }) {
+function PaymentsTab({ setError, S }) {
   const [pin, setPin] = React.useState('');
   return (
     <>
       <section className="glass rounded-2xl p-4 md:p-5 mb-5">
         <div className="flex flex-wrap items-end gap-3">
           <label>
-            <div className="text-xs text-slate-400 mb-1">PIN администратора</div>
+            <div className="text-xs text-slate-400 mb-1">{S.pin_label}</div>
             <input type="password" value={pin} onChange={e => setPin(e.target.value)} placeholder="••••" className="w-40" />
           </label>
-          <p className="text-xs text-slate-500 max-w-md">
-            PIN задаётся в Apps Script (константа <code className="text-slate-300">ADMIN_PIN</code>).
-            Если в коде PIN пустой — поле можно оставить пустым, но просмотр всё равно работает у всех с URL.
-          </p>
+          <p className="text-xs text-slate-500 max-w-md">{S.pin_help}</p>
         </div>
       </section>
 
-      {!supplier && (
-        <div className="glass rounded-2xl p-6 text-center text-slate-400">
-          Выберите поставщика в фильтре сверху, чтобы вести учёт его платежей.
-        </div>
-      )}
-
-      {supplier && (
-        <div className="grid md:grid-cols-2 gap-5">
-          <PaymentBlock title="💸 Оплата поставщику" type="supplier" supplier={supplier} pin={pin} setError={setError} />
-          <PaymentBlock title="🎁 Полученный кешбек" type="cashback" supplier={supplier} pin={pin} setError={setError} />
-        </div>
-      )}
+      <div className="grid md:grid-cols-2 gap-5">
+        <PaymentBlock title={S.title_supplier_payment} type="supplier" pin={pin} setError={setError} S={S} />
+        <PaymentBlock title={S.title_cashback_received} type="cashback" pin={pin} setError={setError} S={S} />
+      </div>
     </>
   );
 }
 
-function PaymentBlock({ title, type, supplier, pin, setError }) {
+function PaymentBlock({ title, type, pin, setError, S }) {
   const [items, setItems] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
   const [date, setDate] = React.useState(today());
@@ -400,25 +534,25 @@ function PaymentBlock({ title, type, supplier, pin, setError }) {
   async function reload() {
     setLoading(true);
     try {
-      const r = await apiGet('listPayments', { type, supplier });
+      const r = await apiGet('listPayments', { type, supplier: SUPPLIER });
       setItems(r.rows || []);
     } catch (e) { setError(title + ': ' + e.message); }
     finally { setLoading(false); }
   }
-  React.useEffect(() => { if (supplier) reload(); }, [type, supplier]);
+  React.useEffect(() => { reload(); }, [type]);
 
   async function add() {
     if (!amount || !date) return;
     setSubmitting(true); setError('');
     try {
-      await apiPost({ action: 'addPayment', type, supplier, date, amount: Number(amount), note, pin });
+      await apiPost({ action: 'addPayment', type, supplier: SUPPLIER, date, amount: Number(amount), note, pin });
       setAmount(''); setNote('');
       reload();
     } catch (e) { setError(title + ': ' + e.message); }
     finally { setSubmitting(false); }
   }
   async function remove(id) {
-    if (!confirm('Удалить эту запись?')) return;
+    if (!confirm(S.delete_confirm)) return;
     try { await apiPost({ action: 'deletePayment', type, id, pin }); reload(); }
     catch (e) { setError(title + ': ' + e.message); }
   }
@@ -428,14 +562,14 @@ function PaymentBlock({ title, type, supplier, pin, setError }) {
   return (
     <section className="glass rounded-2xl p-4 md:p-5">
       <h3 className="text-lg font-medium mb-1">{title}</h3>
-      <p className="text-xs text-slate-400 mb-4">{supplier}</p>
+      <p className="text-xs text-slate-400 mb-4">{SUPPLIER}</p>
 
       <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 mb-4">
         <input type="date" value={date} onChange={e => setDate(e.target.value)} className="sm:col-span-3" />
-        <input type="number" step="0.01" min="0" placeholder="Сумма" value={amount} onChange={e => setAmount(e.target.value)} className="sm:col-span-3" />
-        <input type="text" placeholder="Комментарий (опционально)" value={note} onChange={e => setNote(e.target.value)} className="sm:col-span-4" />
+        <input type="number" step="0.01" min="0" placeholder={S.payment_amount} value={amount} onChange={e => setAmount(e.target.value)} className="sm:col-span-3" />
+        <input type="text" placeholder={S.payment_note} value={note} onChange={e => setNote(e.target.value)} className="sm:col-span-4" />
         <button onClick={add} disabled={submitting || !amount} className="btn-primary sm:col-span-2">
-          {submitting ? '…' : '+ Добавить'}
+          {submitting ? S.btn_adding : S.btn_add}
         </button>
       </div>
 
@@ -443,15 +577,15 @@ function PaymentBlock({ title, type, supplier, pin, setError }) {
         <table className="w-full text-sm">
           <thead className="text-slate-400 bg-slate-900/50">
             <tr>
-              <th className="text-left  px-3 py-2 w-28">Дата</th>
-              <th className="text-right px-3 py-2 w-32">Сумма</th>
-              <th className="text-left  px-3 py-2">Комментарий</th>
+              <th className="text-left  px-3 py-2 w-28">{S.payment_date}</th>
+              <th className="text-right px-3 py-2 w-32">{S.payment_amount}</th>
+              <th className="text-left  px-3 py-2">{S.payment_comment}</th>
               <th className="px-3 py-2 w-12"></th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={4} className="text-center text-slate-500 py-6">Загрузка…</td></tr>}
-            {!loading && !items.length && <tr><td colSpan={4} className="text-center text-slate-500 py-6">Записей пока нет</td></tr>}
+            {loading && <tr><td colSpan={4} className="text-center text-slate-500 py-6">{S.p_loading}</td></tr>}
+            {!loading && !items.length && <tr><td colSpan={4} className="text-center text-slate-500 py-6">{S.no_records}</td></tr>}
             {items.map(it => (
               <tr key={it.id} className="border-t border-white/5">
                 <td className="px-3 py-2 font-mono text-slate-300">{it.date}</td>
@@ -464,9 +598,9 @@ function PaymentBlock({ title, type, supplier, pin, setError }) {
             ))}
             {items.length > 0 && (
               <tr className="border-t-2 border-white/20 font-semibold bg-slate-900/30">
-                <td className="px-3 py-2">Итого</td>
+                <td className="px-3 py-2">{S.total}</td>
                 <td className="num px-3 py-2 text-blue-300">{fmtMoney(total)} {CURRENCY}</td>
-                <td colSpan={2} className="px-3 py-2 text-slate-500 text-xs">{items.length} записей</td>
+                <td colSpan={2} className="px-3 py-2 text-slate-500 text-xs">{items.length}{S.records_count}</td>
               </tr>
             )}
           </tbody>
@@ -479,7 +613,7 @@ function PaymentBlock({ title, type, supplier, pin, setError }) {
 /* ============================================================
  *  TAB: RECONCILIATION
  * ============================================================ */
-function ReconTab({ supplier, year, setError }) {
+function ReconTab({ year, setError, S }) {
   const yearStart = year + '-01-01';
   const [from, setFrom] = React.useState(yearStart);
   const [to, setTo] = React.useState(today());
@@ -488,27 +622,27 @@ function ReconTab({ supplier, year, setError }) {
 
   async function load() {
     setLoading(true); setError('');
-    try { setData(await apiGet('getReconciliation', { from, to, supplier })); }
-    catch (e) { setError('Сверка: ' + e.message); }
+    try { setData(await apiGet('getReconciliation', { from, to, supplier: SUPPLIER })); }
+    catch (e) { setError(S.err_recon + e.message); }
     finally { setLoading(false); }
   }
-  React.useEffect(() => { load(); }, [supplier]);
+  React.useEffect(() => { load(); }, []);
 
   return (
     <>
       <section className="glass rounded-2xl p-4 md:p-5 mb-5">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
           <label className="md:col-span-4">
-            <div className="text-xs text-slate-400 mb-1">С даты</div>
+            <div className="text-xs text-slate-400 mb-1">{S.from}</div>
             <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="w-full" />
           </label>
           <label className="md:col-span-4">
-            <div className="text-xs text-slate-400 mb-1">По дату</div>
+            <div className="text-xs text-slate-400 mb-1">{S.to}</div>
             <input type="date" value={to} onChange={e => setTo(e.target.value)} className="w-full" />
           </label>
           <div className="md:col-span-4">
             <button onClick={load} disabled={loading} className="btn-primary w-full">
-              {loading ? 'Считаю…' : 'Пересчитать'}
+              {loading ? S.btn_recalc_loading : S.btn_recalc}
             </button>
           </div>
         </div>
@@ -517,16 +651,16 @@ function ReconTab({ supplier, year, setError }) {
       {data && (
         <>
           <section className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
-            <Stat label="Закупка (продано)"  value={fmtMoney(data.totals.supply) + ' ' + CURRENCY} />
-            <Stat label="Cashback к получению" value={fmtMoney(data.totals.cashback) + ' ' + CURRENCY} accent />
-            <Stat label="Оплачено поставщику" value={fmtMoney(data.totals.supplierPaid) + ' ' + CURRENCY} />
-            <Stat label="Получен кешбек" value={fmtMoney(data.totals.cashbackPaid) + ' ' + CURRENCY} accent />
-            <Stat label="Чистый баланс" value={(data.totals.netBalance >= 0 ? 'Должны: ' : 'Переплата: ') + fmtMoney(Math.abs(data.totals.netBalance)) + ' ' + CURRENCY} bold />
+            <Stat label={S.stat_supply_sold} value={fmtMoney(data.totals.supply) + ' ' + CURRENCY} />
+            <Stat label={S.stat_cashback_due} value={fmtMoney(data.totals.cashback) + ' ' + CURRENCY} accent />
+            <Stat label={S.stat_supplier_paid} value={fmtMoney(data.totals.supplierPaid) + ' ' + CURRENCY} />
+            <Stat label={S.stat_cashback_received} value={fmtMoney(data.totals.cashbackPaid) + ' ' + CURRENCY} accent />
+            <Stat label={S.stat_balance} value={(data.totals.netBalance >= 0 ? S.balance_owe : S.balance_overpaid) + fmtMoney(Math.abs(data.totals.netBalance)) + ' ' + CURRENCY} bold />
           </section>
 
           <section className="grid grid-cols-2 md:grid-cols-2 gap-3 mb-5">
-            <Stat label="Долг поставщику (Закупка − Оплачено)" value={fmtMoney(data.totals.supplierDebt) + ' ' + CURRENCY} bold />
-            <Stat label="Долг по кешбеку (CB − Получено)" value={fmtMoney(data.totals.cashbackDebt) + ' ' + CURRENCY} bold accent />
+            <Stat label={S.stat_supplier_debt} value={fmtMoney(data.totals.supplierDebt) + ' ' + CURRENCY} bold />
+            <Stat label={S.stat_cashback_debt} value={fmtMoney(data.totals.cashbackDebt) + ' ' + CURRENCY} bold accent />
           </section>
 
           <section className="glass rounded-2xl p-2 md:p-3">
@@ -534,19 +668,19 @@ function ReconTab({ supplier, year, setError }) {
               <table className="w-full text-sm">
                 <thead className="text-slate-400">
                   <tr>
-                    <th className="text-left  px-3 py-2">Неделя</th>
-                    <th className="text-left  px-3 py-2">Период</th>
-                    <th className="text-right px-3 py-2">Закупка</th>
-                    <th className="text-right px-3 py-2">Cashback</th>
-                    <th className="text-right px-3 py-2">Оплач. пост.</th>
-                    <th className="text-right px-3 py-2">Получ. CB</th>
-                    <th className="text-right px-3 py-2">Долг пост.</th>
-                    <th className="text-right px-3 py-2">Долг CB</th>
+                    <th className="text-left  px-3 py-2">{S.col_week}</th>
+                    <th className="text-left  px-3 py-2">{S.col_period_short}</th>
+                    <th className="text-right px-3 py-2">{S.col_supply}</th>
+                    <th className="text-right px-3 py-2">{S.col_cashback}</th>
+                    <th className="text-right px-3 py-2">{S.col_paid_short}</th>
+                    <th className="text-right px-3 py-2">{S.col_received_short}</th>
+                    <th className="text-right px-3 py-2">{S.col_debt_supplier}</th>
+                    <th className="text-right px-3 py-2">{S.col_debt_cb}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {!data.weeks.length && (
-                    <tr><td colSpan={8} className="text-center text-slate-500 py-10">Нет данных за период</td></tr>
+                    <tr><td colSpan={8} className="text-center text-slate-500 py-10">{S.no_data}</td></tr>
                   )}
                   {data.weeks.map(w => {
                     const empty = !w.supply && !w.cashback && !w.supplierPaid && !w.cashbackPaid;
@@ -565,7 +699,7 @@ function ReconTab({ supplier, year, setError }) {
                   })}
                   {data.weeks.length > 0 && (
                     <tr className="border-t-2 border-white/20 font-semibold">
-                      <td colSpan={2} className="px-3 py-2">Итого</td>
+                      <td colSpan={2} className="px-3 py-2">{S.total}</td>
                       <td className="num px-3 py-2">{fmtMoney(data.totals.supply)}</td>
                       <td className="num px-3 py-2 text-emerald-300">{fmtMoney(data.totals.cashback)}</td>
                       <td className="num px-3 py-2 text-blue-300">{fmtMoney(data.totals.supplierPaid)}</td>
@@ -584,9 +718,6 @@ function ReconTab({ supplier, year, setError }) {
   );
 }
 
-/* ============================================================
- *  Reusable
- * ============================================================ */
 function Stat({ label, value, mono, bold, accent }) {
   return (
     <div className="glass rounded-xl px-4 py-3">
