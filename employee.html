@@ -505,9 +505,21 @@
                         <ul className="space-y-3 text-gray-300">
                             {(() => {
                                 const recs = [];
+                                // Определяем, действуют ли новые правила (с Май_26)
+                                const MONTH_NAMES_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+                                const parseYM = (m) => {
+                                    const p = String(m || '').split('_');
+                                    if (p.length !== 2) return 0;
+                                    const idx = MONTH_NAMES_RU.indexOf(p[0]);
+                                    if (idx < 0) return 0;
+                                    return (2000 + parseInt(p[1], 10)) * 100 + (idx + 1);
+                                };
+                                const isNewRules = parseYM(selectedMonth) >= 202605;
+
                                 const ledSales = data.bonusByCategory?.['LED - Grow Lighting']?.amount || 0;
                                 const cbdGorilla = data.bonusByCategory?.['CBD > CBD Gorilla']?.amount || 0;
                                 const cbdGlobal = data.bonusByCategory?.['CBD > CBD Global']?.amount || 0;
+                                const saleSales = data.bonusByCategory?.['SALE']?.amount || 0;
                                 const totalSales = data.totalSales || 0;
                                 const avgDailySales = dates.length > 0 ? totalSales / dates.length : 0;
 
@@ -516,7 +528,11 @@
                                     recs.push(`CBD Gorilla дает 14% бонуса против 7% у Global. Если перераспределить часть продаж в пользу Gorilla, бонус может вырасти примерно на ${potentialExtra.toFixed(0)} ГЕЛ.`);
                                 }
 
-                                if (ledSales === 0 && totalSales > 0) {
+                                if (isNewRules) {
+                                    if (saleSales === 0 && totalSales > 0) {
+                                        recs.push('Категория SALE дает 10% бонуса. Попробуйте предлагать акционные товары клиентам — даже 500 ГЕЛ продаж принесут +50 ГЕЛ бонуса.');
+                                    }
+                                } else if (ledSales === 0 && totalSales > 0) {
                                     recs.push('LED оборудование дает 5% бонуса. Попробуйте предлагать LED клиентам — даже 500 ГЕЛ продаж принесут +25 ГЕЛ бонуса.');
                                 }
 
@@ -542,7 +558,11 @@
                                 }
 
                                 if (recs.length === 0) {
-                                    recs.push('Отличная работа! 🔥 Сфокусируйтесь на CBD Gorilla (14% бонуса) для максимизации доходов.');
+                                    if (isNewRules) {
+                                        recs.push('Отличная работа! 🔥 Сфокусируйтесь на CBD Gorilla (14%) и SALE (10%) для максимизации доходов.');
+                                    } else {
+                                        recs.push('Отличная работа! 🔥 Сфокусируйтесь на CBD Gorilla (14% бонуса) для максимизации доходов.');
+                                    }
                                 }
                                 return recs;
                             })().map((rec, idx) => (

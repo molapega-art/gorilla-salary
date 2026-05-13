@@ -103,6 +103,65 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
+        // ===== Версионность правил бонусов по месяцам =====
+        const MONTH_NAMES_RU = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+            'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+
+        // "Апрель_26" -> 202604; некорректный ввод -> 0
+        const parseMonthYM = (month) => {
+            if (!month) return 0;
+            const parts = String(month).split('_');
+            if (parts.length !== 2) return 0;
+            const idx = MONTH_NAMES_RU.indexOf(parts[0]);
+            if (idx < 0) return 0;
+            const year = 2000 + parseInt(parts[1], 10);
+            return year * 100 + (idx + 1);
+        };
+
+        const getBonusRulesForMonth = (month) => {
+            const ym = parseMonthYM(month);
+            if (ym >= 202605) {
+                // С Май_26
+                return {
+                    'CBD > CBD Gorilla': 0.14,
+                    'CBD > CBD Global': 0.07,
+                    'SALE': 0.10
+                };
+            }
+            // До Май_26 (включая Апрель_26)
+            return {
+                'LED - Grow Lighting': 0.05,
+                'CBD > CBD Gorilla': 0.14,
+                'CBD > CBD Global': 0.07,
+                'CBD > CBD Other': 0.05
+            };
+        };
+
+        // Метаинфо колонок: ярлык для шапки и ключ в bonusByCategory.
+        // Порядок здесь = порядок колонок в дашборде.
+        const CATEGORY_META = [
+            { key: 'LED - Grow Lighting', label: 'LED' },
+            { key: 'CBD > CBD Gorilla', label: 'CBD Gorilla' },
+            { key: 'CBD > CBD Global', label: 'CBD Global' },
+            { key: 'CBD > CBD Other', label: 'CBD Other' },
+            { key: 'SALE', label: 'SALE' }
+        ];
+
+        // Колонки, которые надо показать для конкретного месяца.
+        // Активные правила + любые исторические колонки с ненулевыми бонусами.
+        const getDisplayCategories = (month, employees) => {
+            const rules = getBonusRulesForMonth(month);
+            const result = [];
+            CATEGORY_META.forEach(meta => {
+                const isActive = rules[meta.key] !== undefined;
+                const hasHistorical = (employees || []).some(emp =>
+                    (emp.bonusByCategory?.[meta.key]?.bonus || 0) > 0
+                );
+                if (isActive || hasHistorical) result.push(meta);
+            });
+            return result;
+        };
+
         const AdminApp = () => {
             const [monthSheet, setMonthSheet] = useState('');
             const [processedData, setProcessedData] = useState(null);
@@ -405,11 +464,25 @@
                     // 2. Смены из Google Sheets (уже загружены)
                     const shiftEmployees = shiftsFromDb;
 
-                    const bonusCategories = {
-                        'LED - Grow Lighting': 0.05,
-                        'CBD > CBD Gorilla': 0.14,
-                        'CBD > CBD Global': 0.07,
-                        'CBD > CBD Other': 0.05
+                    // Правила бонусов зависят от месяца.
+                    // До Май_26: LED 5%, Gorilla 14%, Global 7%, Other 5%.
+                    // С Май_26: Gorilla 14%, Global 7%, SALE 10%.
+                    const bonusCategories = getBonusRulesForMonth(monthSheet);
+
+                    // Нормализация категорий из Billz — некоторые товары имеют только "CBD" или "CBD Global" без полного пути
+                    const normalizeCategory = (cat) => {
+                        if (!cat) return 'Прочее';
+                        // Точные совпадения — без изменений
+                        if (bonusCategories[cat] !== undefined) return cat;
+                        // "CBD Global" без префикса → "CBD > CBD Global"
+                        if (cat === 'CBD Global') return 'CBD > CBD Global';
+                        // "LED" variants
+                        if (cat === 'LED - Grow Lighting' || cat === 'LED' || cat === 'Grow Lighting') return 'LED - Grow Lighting';
+                        // "CBD" без подкатегории → "CBD > CBD Global" (товары в корне CBD = CBD Global)
+                        if (cat === 'CBD') return 'CBD > CBD Global';
+                        // SALE — любой регистр
+                        if (cat === 'Sale' || cat === 'sale' || cat === 'Распродажа' || cat === 'Акция') return 'SALE';
+                        return cat;
                     };
 
                     const employeeData = {};
@@ -420,7 +493,8 @@
                         const shortName = row.cashier;
                         const date = row.date;
                         const sku = row.sku;
-                        const category = row.category || 'Прочее';
+                        const rawCategory = row.category || 'Прочее';
+                        const category = normalizeCategory(rawCategory);
                         const netRevenue = row.amount || 0;
 
                         if (!shortName) return;
@@ -714,15 +788,13 @@
 
                             {/* Process & Save */}
                             <div className="space-y-4">
-                                {!loadedFromDb && (
-                                    <button
-                                        onClick={processData}
-                                        disabled={loadingTransactions || !shiftsFromDb}
-                                        className="btn-primary w-full px-6 py-3 rounded-lg text-white font-bold text-lg disabled:opacity-50"
-                                    >
-                                        {loadingTransactions ? '⏳ Загрузка транзакций...' : '✨ Рассчитать Зарплаты'}
-                                    </button>
-                                )}
+                                <button
+                                    onClick={() => { setLoadedFromDb(false); processData(); }}
+                                    disabled={loadingTransactions || !shiftsFromDb}
+                                    className="btn-primary w-full px-6 py-3 rounded-lg text-white font-bold text-lg disabled:opacity-50"
+                                >
+                                    {loadingTransactions ? '⏳ Загрузка транзакций...' : loadedFromDb ? '🔄 Пересчитать Зарплаты' : '✨ Рассчитать Зарплаты'}
+                                </button>
 
                                 {processedData && sheetsConnected && !loadedFromDb && (
                                     <button
@@ -807,21 +879,25 @@
                         <div className="overflow-x-auto">
                             <table className="w-full">
                                 <thead>
-                                    <tr>
-                                        <th className="text-left px-3 py-2">Имя</th>
-                                        <th className="text-right px-3 py-2">Смены</th>
-                                        <th className="text-right px-3 py-2">Оклад (ГЕЛ)</th>
-                                        <th className="text-right px-3 py-2">Продажи (ГЕЛ)</th>
-                                        <th className="text-right px-3 py-2">LED</th>
-                                        <th className="text-right px-3 py-2">CBD Gorilla</th>
-                                        <th className="text-right px-3 py-2">CBD Global</th>
-                                        <th className="text-right px-3 py-2">CBD Other</th>
-                                        <th className="text-right px-3 py-2">Бонус продажи</th>
-                                        <th className="text-right px-3 py-2">🏆 Луч. день</th>
-                                        <th className="text-right px-3 py-2">👑 Топ прод.</th>
-                                        <th className="text-right px-3 py-2">Авансы</th>
-                                        <th className="text-right px-3 py-2">К выплате (ГЕЛ)</th>
-                                    </tr>
+                                    {(() => {
+                                        const cats = getDisplayCategories(processedData.month, employees);
+                                        return (
+                                            <tr>
+                                                <th className="text-left px-3 py-2">Имя</th>
+                                                <th className="text-right px-3 py-2">Смены</th>
+                                                <th className="text-right px-3 py-2">Оклад (ГЕЛ)</th>
+                                                <th className="text-right px-3 py-2">Продажи (ГЕЛ)</th>
+                                                {cats.map(c => (
+                                                    <th key={c.key} className="text-right px-3 py-2">{c.label}</th>
+                                                ))}
+                                                <th className="text-right px-3 py-2">Бонус продажи</th>
+                                                <th className="text-right px-3 py-2">🏆 Луч. день</th>
+                                                <th className="text-right px-3 py-2">👑 Топ прод.</th>
+                                                <th className="text-right px-3 py-2">Авансы</th>
+                                                <th className="text-right px-3 py-2">К выплате (ГЕЛ)</th>
+                                            </tr>
+                                        );
+                                    })()}
                                 </thead>
                                 <tbody>
                                     {employees.map((emp, idx) => (
@@ -841,18 +917,11 @@
                                             <td className="text-right px-3 py-2">{emp.shifts.shiftCount || 0}</td>
                                             <td className="text-right px-3 py-2">{emp.shiftPay.toFixed(2)}</td>
                                             <td className="text-right px-3 py-2 font-medium">{emp.totalSales.toFixed(2)}</td>
-                                            <td className="text-right px-3 py-2 text-sm">
-                                                {(emp.bonusByCategory['LED - Grow Lighting']?.bonus || 0).toFixed(2)}
-                                            </td>
-                                            <td className="text-right px-3 py-2 text-sm">
-                                                {(emp.bonusByCategory['CBD > CBD Gorilla']?.bonus || 0).toFixed(2)}
-                                            </td>
-                                            <td className="text-right px-3 py-2 text-sm">
-                                                {(emp.bonusByCategory['CBD > CBD Global']?.bonus || 0).toFixed(2)}
-                                            </td>
-                                            <td className="text-right px-3 py-2 text-sm">
-                                                {(emp.bonusByCategory['CBD > CBD Other']?.bonus || 0).toFixed(2)}
-                                            </td>
+                                            {getDisplayCategories(processedData.month, employees).map(c => (
+                                                <td key={c.key} className="text-right px-3 py-2 text-sm">
+                                                    {(emp.bonusByCategory[c.key]?.bonus || 0).toFixed(2)}
+                                                </td>
+                                            ))}
                                             <td className="text-right px-3 py-2 font-medium text-yellow-400">
                                                 {(emp.totalBonus || 0).toFixed(2)}
                                             </td>
@@ -879,30 +948,30 @@
                                 </tbody>
                                 <tfoot>
                                     {(() => {
-                                        const totals = employees.reduce((acc, emp) => ({
-                                            shifts: acc.shifts + (emp.shifts.shiftCount || 0),
-                                            shiftPay: acc.shiftPay + emp.shiftPay,
-                                            sales: acc.sales + emp.totalSales,
-                                            led: acc.led + (emp.bonusByCategory['LED - Grow Lighting']?.bonus || 0),
-                                            gorilla: acc.gorilla + (emp.bonusByCategory['CBD > CBD Gorilla']?.bonus || 0),
-                                            global: acc.global + (emp.bonusByCategory['CBD > CBD Global']?.bonus || 0),
-                                            other: acc.other + (emp.bonusByCategory['CBD > CBD Other']?.bonus || 0),
-                                            salesBonus: acc.salesBonus + (emp.totalBonus || 0),
-                                            bestDay: acc.bestDay + (emp.bestDayBonus || 0),
-                                            topSeller: acc.topSeller + (emp.topSellerBonus || 0),
-                                            advances: acc.advances + emp.advances,
-                                            toPay: acc.toPay + emp.totalToPay
-                                        }), { shifts: 0, shiftPay: 0, sales: 0, led: 0, gorilla: 0, global: 0, other: 0, salesBonus: 0, bestDay: 0, topSeller: 0, advances: 0, toPay: 0 });
+                                        const cats = getDisplayCategories(processedData.month, employees);
+                                        const totals = employees.reduce((acc, emp) => {
+                                            acc.shifts += (emp.shifts.shiftCount || 0);
+                                            acc.shiftPay += emp.shiftPay;
+                                            acc.sales += emp.totalSales;
+                                            acc.salesBonus += (emp.totalBonus || 0);
+                                            acc.bestDay += (emp.bestDayBonus || 0);
+                                            acc.topSeller += (emp.topSellerBonus || 0);
+                                            acc.advances += emp.advances;
+                                            acc.toPay += emp.totalToPay;
+                                            cats.forEach(c => {
+                                                acc.byCat[c.key] = (acc.byCat[c.key] || 0) + (emp.bonusByCategory[c.key]?.bonus || 0);
+                                            });
+                                            return acc;
+                                        }, { shifts: 0, shiftPay: 0, sales: 0, salesBonus: 0, bestDay: 0, topSeller: 0, advances: 0, toPay: 0, byCat: {} });
                                         return (
                                             <tr className="border-t-2 border-gray-500 bg-gray-800/50 font-bold">
                                                 <td className="px-3 py-2">ИТОГО</td>
                                                 <td className="text-right px-3 py-2">{totals.shifts}</td>
                                                 <td className="text-right px-3 py-2">{totals.shiftPay.toFixed(2)}</td>
                                                 <td className="text-right px-3 py-2">{totals.sales.toFixed(2)}</td>
-                                                <td className="text-right px-3 py-2 text-sm">{totals.led.toFixed(2)}</td>
-                                                <td className="text-right px-3 py-2 text-sm">{totals.gorilla.toFixed(2)}</td>
-                                                <td className="text-right px-3 py-2 text-sm">{totals.global.toFixed(2)}</td>
-                                                <td className="text-right px-3 py-2 text-sm">{totals.other.toFixed(2)}</td>
+                                                {cats.map(c => (
+                                                    <td key={c.key} className="text-right px-3 py-2 text-sm">{(totals.byCat[c.key] || 0).toFixed(2)}</td>
+                                                ))}
                                                 <td className="text-right px-3 py-2 text-yellow-400">{totals.salesBonus.toFixed(2)}</td>
                                                 <td className="text-right px-3 py-2 text-yellow-400">{totals.bestDay.toFixed(0)}</td>
                                                 <td className="text-right px-3 py-2 text-green-400">{totals.topSeller.toFixed(2)}</td>
