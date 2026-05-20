@@ -488,10 +488,34 @@
                     const employeeData = {};
                     const dailySales = {};
 
+                    // Сдвиг даты для дневных агрегаций: ночные продажи до 07:00 относим к вчерашнему дню.
+                    // Не влияет на месячные суммы и бонусы по категориям — только на dailySales/Best Day.
+                    const getBusinessDate = (date, time) => {
+                        if (!date || !time) return date;
+                        let hour = -1;
+                        const t = String(time);
+                        const tIdx = t.indexOf('T');
+                        if (tIdx >= 0 && t.length >= tIdx + 3) {
+                            hour = parseInt(t.substring(tIdx + 1, tIdx + 3), 10);
+                        } else if (t.indexOf(':') >= 0 && t.length >= 2) {
+                            hour = parseInt(t.substring(0, 2), 10);
+                        }
+                        if (isNaN(hour) || hour < 0 || hour >= 7) return date;
+                        const parts = String(date).substring(0, 10).split('-');
+                        if (parts.length !== 3) return date;
+                        const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                        d.setDate(d.getDate() - 1);
+                        const yyyy = d.getFullYear();
+                        const mm = String(d.getMonth() + 1).padStart(2, '0');
+                        const dd = String(d.getDate()).padStart(2, '0');
+                        return `${yyyy}-${mm}-${dd}`;
+                    };
+
                     // Обрабатываем транзакции из БД — уже имеют короткие имена и категории
                     transactions.forEach(row => {
                         const shortName = row.cashier;
-                        const date = row.date;
+                        // Apps Script уже отдаёт businessDate, но на случай старых данных — вычисляем сами
+                        const date = row.businessDate || getBusinessDate(row.date, row.time);
                         const sku = row.sku;
                         const rawCategory = row.category || 'Прочее';
                         const category = normalizeCategory(rawCategory);
