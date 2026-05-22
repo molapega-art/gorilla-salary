@@ -490,17 +490,26 @@
 
                     // Сдвиг даты для дневных агрегаций: ночные продажи до 07:00 относим к вчерашнему дню.
                     // Не влияет на месячные суммы и бонусы по категориям — только на dailySales/Best Day.
+                    // Поддерживаемые форматы time: "2026-05-13 02:34:21" (Billz), "2026-05-13T02:34:21Z", "02:34:21".
                     const getBusinessDate = (date, time) => {
                         if (!date || !time) return date;
                         let hour = -1;
                         const t = String(time);
-                        const tIdx = t.indexOf('T');
-                        if (tIdx >= 0 && t.length >= tIdx + 3) {
-                            hour = parseInt(t.substring(tIdx + 1, tIdx + 3), 10);
-                        } else if (t.indexOf(':') >= 0 && t.length >= 2) {
-                            hour = parseInt(t.substring(0, 2), 10);
+                        // 1) "YYYY-MM-DD HH:MM:SS" — Billz формат, часы после пробела
+                        const spaceIdx = t.indexOf(' ');
+                        if (spaceIdx >= 0 && t.length >= spaceIdx + 3) {
+                            hour = parseInt(t.substring(spaceIdx + 1, spaceIdx + 3), 10);
+                        } else {
+                            // 2) ISO "T" — часы между T и :
+                            const tIdx = t.indexOf('T');
+                            if (tIdx >= 0 && t.length >= tIdx + 3) {
+                                hour = parseInt(t.substring(tIdx + 1, tIdx + 3), 10);
+                            } else if (t.indexOf(':') >= 0 && t.indexOf(':') <= 2) {
+                                // 3) "HH:MM:SS" / "HH:MM" — только если двоеточие в первых 2 символах
+                                hour = parseInt(t.substring(0, 2), 10);
+                            }
                         }
-                        if (isNaN(hour) || hour < 0 || hour >= 7) return date;
+                        if (isNaN(hour) || hour < 0 || hour > 23 || hour >= 7) return date;
                         const parts = String(date).substring(0, 10).split('-');
                         if (parts.length !== 3) return date;
                         const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
