@@ -144,7 +144,8 @@
             { key: 'CBD > CBD Gorilla', label: 'CBD Gorilla' },
             { key: 'CBD > CBD Global', label: 'CBD Global' },
             { key: 'CBD > CBD Other', label: 'CBD Other' },
-            { key: 'SALE', label: 'SALE' }
+            { key: 'SALE', label: 'SALE' },
+            { key: 'Настойки (бар)', label: 'Настойки' }
         ];
 
         // Колонки, которые надо показать для конкретного месяца.
@@ -461,6 +462,18 @@
 
                     setWarnings([`📦 Загружено ${transactions.length} транзакций за ${monthSheet}. Рассчитываю...`]);
 
+                    // 1b. Подтягиваем «Настойки бонус» из листа Расчёты (вручную вводимая колонка)
+                    let tinctureBonusByName = {};
+                    try {
+                        const salResp = await fetch(`${API_URL}?action=getSalaryData&month=${encodeURIComponent(monthSheet)}`, { method: 'GET', mode: 'cors' });
+                        const salJson = await salResp.json();
+                        if (salJson && salJson.success && salJson.data && salJson.data.employees) {
+                            Object.entries(salJson.data.employees).forEach(([n, e]) => {
+                                tinctureBonusByName[n] = Number(e.tinctureBonus || 0);
+                            });
+                        }
+                    } catch (e) { /* не критично если упало */ }
+
                     // 2. Смены из Google Sheets (уже загружены)
                     const shiftEmployees = shiftsFromDb;
 
@@ -612,6 +625,14 @@
                     Object.values(employeeData).forEach(emp => {
                         emp.shiftPay = emp.shifts.totalShiftPay || 0;
                         emp.advances = emp.advances || 0;
+                        // Бонус за настойки (из Расчёты колонка «Настойки бонус» — вручную из Poster)
+                        emp.tinctureBonus = tinctureBonusByName[emp.shortName] || 0;
+                        if (emp.tinctureBonus > 0) {
+                            emp.totalBonus = (emp.totalBonus || 0) + emp.tinctureBonus;
+                            if (!emp.bonusByCategory['Настойки (бар)']) {
+                                emp.bonusByCategory['Настойки (бар)'] = { amount: 0, bonus: emp.tinctureBonus, rate: 0.10 };
+                            }
+                        }
                         emp.totalToPay = emp.shiftPay + emp.totalBonus + emp.bestDayBonus + emp.topSellerBonus + (emp.shifts.reviewsBonus || 0) + (emp.shifts.management || 0) - (emp.shifts.inventoryDeduction || 0) - emp.advances;
                     });
 
