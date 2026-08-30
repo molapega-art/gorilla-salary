@@ -267,6 +267,13 @@
                 } catch { return dateStr; }
             };
 
+            // Management / отзывы / инвентаризация не приходят из листа «Расчёты»,
+            // поэтому считаем их как остаток — так строки всегда сходятся с итогом
+            const knownParts = (data.shiftPay || 0) + (data.totalBonus || 0) + (data.bestDayBonus || 0)
+                + (data.topSellerBonus || 0) + (data.shifts?.reviewsBonus || 0) + (data.shifts?.management || 0)
+                - (data.shifts?.inventoryDeduction || 0) - (data.advances || 0);
+            const miscAdjustment = Math.round(((data.totalToPay || 0) - knownParts) * 100) / 100;
+
             return (
                 <div className="space-y-6">
                     {/* Name & Badges */}
@@ -478,6 +485,12 @@
                                 <div className="flex justify-between">
                                     <span>📋 Управление</span>
                                     <span className="text-yellow-400">+{(data.shifts.management || 0).toFixed(2)} ГЕЛ</span>
+                                </div>
+                            )}
+                            {Math.abs(miscAdjustment) >= 0.01 && (
+                                <div className="flex justify-between">
+                                    <span>📋 Management / прочее</span>
+                                    <span className={miscAdjustment > 0 ? "text-yellow-400" : "text-red-400"}>{miscAdjustment > 0 ? '+' : ''}{miscAdjustment.toFixed(2)} ГЕЛ</span>
                                 </div>
                             )}
                             {(data.advances || 0) > 0 && (
