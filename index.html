@@ -53,6 +53,28 @@
         // ====== НАСТРОЙКА: URL Apps Script ======
         const API_URL = 'https://script.google.com/macros/s/AKfycbwc5_r_FHiVrSiYxS2hUtkLgul8JV1lKyKmcQAkZahgyP60wcBvwMeMU5lu2AUoz1hh/exec';
 
+        // Apps Script иногда отдаёт 404 «Page Not Found» или зависает — повторяем запрос.
+        async function apiGet(query, attempts = 4) {
+            let lastErr;
+            for (let i = 0; i < attempts; i++) {
+                const ctrl = new AbortController();
+                const timer = setTimeout(() => ctrl.abort(), 25000);
+                try {
+                    const sep = query.includes('?') ? '&' : '?';
+                    const res = await fetch(`${API_URL}${query}${sep}_=${Date.now()}`, { method: 'GET', mode: 'cors', signal: ctrl.signal });
+                    const text = await res.text();
+                    const json = JSON.parse(text); // HTML-страница ошибки упадёт здесь
+                    return json;
+                } catch (e) {
+                    lastErr = e;
+                    if (i < attempts - 1) await new Promise(r => setTimeout(r, 800 * (i + 1)));
+                } finally {
+                    clearTimeout(timer);
+                }
+            }
+            throw lastErr;
+        }
+
         const EmployeeApp = () => {
             const [months, setMonths] = useState([]);
             const [employees, setEmployees] = useState([]);
@@ -72,8 +94,7 @@
                 setLoading(true);
                 setError('');
                 try {
-                    const response = await fetch(`${API_URL}?action=getMonths`, { method: 'GET', mode: 'cors' });
-                    const result = await response.json();
+                    const result = await apiGet(`?action=getMonths`);
                     if (result.success && result.data && result.data.length > 0) {
                         setMonths(result.data);
                         const defaultMonth = result.data[0];
@@ -91,8 +112,7 @@
 
             const loadEmployees = async (month) => {
                 try {
-                    const response = await fetch(`${API_URL}?action=getSalaryData&month=${encodeURIComponent(month)}`, { method: 'GET', mode: 'cors' });
-                    const result = await response.json();
+                    const result = await apiGet(`?action=getSalaryData&month=${encodeURIComponent(month)}`);
                     if (result.success && result.data && result.data.employees) {
                         const empList = Object.keys(result.data.employees).sort();
                         setEmployees(empList);
@@ -118,8 +138,7 @@
                 setLoadingData(true);
                 setError('');
                 try {
-                    const response = await fetch(`${API_URL}?action=getEmployeeData&month=${encodeURIComponent(selectedMonth)}&name=${encodeURIComponent(pendingEmployee)}`, { method: 'GET', mode: 'cors' });
-                    const result = await response.json();
+                    const result = await apiGet(`?action=getEmployeeData&month=${encodeURIComponent(selectedMonth)}&name=${encodeURIComponent(pendingEmployee)}`);
                     if (result.success && result.data) {
                         setSalaryData(result.data);
                         setSelectedEmployee(pendingEmployee);
@@ -148,6 +167,9 @@
                         <div className="max-w-6xl mx-auto px-4 mt-4">
                             <div className="bg-red-900/30 border border-red-700 text-red-100 px-4 py-3 rounded-lg">
                                 {error}
+                                {months.length === 0 && (
+                                    <button onClick={loadMonths} className="ml-3 underline font-semibold">🔄 Повторить</button>
+                                )}
                             </div>
                         </div>
                     )}
