@@ -54,19 +54,47 @@
         const API_URL = 'https://script.google.com/macros/s/AKfycbwc5_r_FHiVrSiYxS2hUtkLgul8JV1lKyKmcQAkZahgyP60wcBvwMeMU5lu2AUoz1hh/exec';
 
         // Apps Script иногда отдаёт 404 «Page Not Found» или зависает — повторяем запрос.
-        async function apiGet(query, attempts = 4) {
+        // Наблюдение: первый запрос часто виснет на 25+ сек, а следующий такой же отвечает за 2–3 сек.
+        // Поэтому: (1) если ответа нет HEDGE_AFTER мс — параллельно шлём «дублёр» и берём первый
+        // успешный ответ; (2) таймаут растёт с каждой попыткой (25 → 35 → 45 → 60 сек).
+        const API_TIMEOUTS = [25000, 35000, 45000, 60000];
+        const HEDGE_AFTER = 8000;
+
+        function fetchJson(query, signal) {
+            const sep = query.includes('?') ? '&' : '?';
+            return fetch(`${API_URL}${query}${sep}_=${Date.now()}`, { method: 'GET', mode: 'cors', signal })
+                .then(res => res.text())
+                .then(text => JSON.parse(text)); // HTML-страница ошибки упадёт здесь
+        }
+
+        async function apiGet(query, attempts = API_TIMEOUTS.length) {
             let lastErr;
             for (let i = 0; i < attempts; i++) {
+                const timeoutMs = API_TIMEOUTS[Math.min(i, API_TIMEOUTS.length - 1)];
                 const ctrl = new AbortController();
-                const timer = setTimeout(() => ctrl.abort(), 25000);
+                const timer = setTimeout(() => ctrl.abort(), timeoutMs);
                 try {
-                    const sep = query.includes('?') ? '&' : '?';
-                    const res = await fetch(`${API_URL}${query}${sep}_=${Date.now()}`, { method: 'GET', mode: 'cors', signal: ctrl.signal });
-                    const text = await res.text();
-                    const json = JSON.parse(text); // HTML-страница ошибки упадёт здесь
-                    return json;
+                    const primary = fetchJson(query, ctrl.signal);
+                    let fired = false, hedgeTimer;
+                    const hedge = new Promise((resolve, reject) => {
+                        const fire = () => {
+                            if (fired) return;
+                            fired = true;
+                            clearTimeout(hedgeTimer);
+                            fetchJson(query, ctrl.signal).then(resolve, reject);
+                        };
+                        hedgeTimer = setTimeout(fire, HEDGE_AFTER);
+                        // основной ответил — дублёр не нужен; основной упал — дублёр сразу
+                        primary.then(() => { fired = true; clearTimeout(hedgeTimer); }, fire);
+                    });
+                    return await Promise.any([primary, hedge]);
                 } catch (e) {
-                    lastErr = e;
+                    const errs = (e && e.errors) ? e.errors : [e]; // AggregateError от Promise.any
+                    const aborted = errs.some(x => x && x.name === 'AbortError');
+                    // AbortError даёт системное «signal is aborted without reason» — заменяем на понятное
+                    lastErr = aborted
+                        ? new Error(`сервер не ответил за ${Math.round(timeoutMs / 1000)} сек (попытка ${i + 1} из ${attempts}). Нажмите «Показать расчёт» ещё раз`)
+                        : errs[0];
                     if (i < attempts - 1) await new Promise(r => setTimeout(r, 800 * (i + 1)));
                 } finally {
                     clearTimeout(timer);
