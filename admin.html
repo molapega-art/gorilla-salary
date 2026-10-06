@@ -172,6 +172,60 @@
 
             // Google Sheets integration
             const API_URL = 'https://script.google.com/macros/s/AKfycbwc5_r_FHiVrSiYxS2hUtkLgul8JV1lKyKmcQAkZahgyP60wcBvwMeMU5lu2AUoz1hh/exec';
+
+            // Apps Script иногда отдаёт HTML «Page Not Found» (→ «<!DOCTYPE … is not valid JSON») или
+            // вешает первый запрос на 25+ сек, а следующий такой же отвечает за 2–3 сек. Поэтому:
+            // (1) GET: если ответа нет HEDGE_AFTER мс — параллельно шлём «дублёр», берём первый успешный;
+            // (2) таймаут растёт с каждой попыткой (25 → 35 → 45 → 60 сек);
+            // (3) POST (saveSalaryData — апсерт, идемпотентен) — только повторы, без дублёра.
+            // Та же логика в index.html / employee.html.
+            const API_TIMEOUTS = [25000, 35000, 45000, 60000];
+            const HEDGE_AFTER = 8000;
+
+            function fetchJson(url, init, signal) {
+                const sep = url.includes('?') ? '&' : '?';
+                return fetch(`${url}${sep}_=${Date.now()}`, { ...init, signal })
+                    .then(res => res.text())
+                    .then(text => JSON.parse(text)); // HTML-страница ошибки упадёт здесь
+            }
+
+            async function apiRequest(url, init, hedged, attempts = API_TIMEOUTS.length) {
+                let lastErr;
+                for (let i = 0; i < attempts; i++) {
+                    const timeoutMs = API_TIMEOUTS[Math.min(i, API_TIMEOUTS.length - 1)];
+                    const ctrl = new AbortController();
+                    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+                    try {
+                        const primary = fetchJson(url, init, ctrl.signal);
+                        if (!hedged) return await primary;
+                        let fired = false, hedgeTimer;
+                        const hedge = new Promise((resolve, reject) => {
+                            const fire = () => {
+                                if (fired) return;
+                                fired = true;
+                                clearTimeout(hedgeTimer);
+                                fetchJson(url, init, ctrl.signal).then(resolve, reject);
+                            };
+                            hedgeTimer = setTimeout(fire, HEDGE_AFTER);
+                            // основной ответил — дублёр не нужен; основной упал — дублёр сразу
+                            primary.then(() => { fired = true; clearTimeout(hedgeTimer); }, fire);
+                        });
+                        return await Promise.any([primary, hedge]);
+                    } catch (e) {
+                        const errs = (e && e.errors) ? e.errors : [e]; // AggregateError от Promise.any
+                        const aborted = errs.some(x => x && x.name === 'AbortError');
+                        lastErr = aborted
+                            ? new Error(`сервер не ответил за ${Math.round(timeoutMs / 1000)} сек (попытка ${i + 1} из ${attempts}). Повторите действие`)
+                            : errs[0];
+                        if (i < attempts - 1) await new Promise(r => setTimeout(r, 800 * (i + 1)));
+                    } finally {
+                        clearTimeout(timer);
+                    }
+                }
+                throw lastErr;
+            }
+            const apiGet = (url) => apiRequest(url, { method: 'GET', mode: 'cors' }, true);
+            const apiPost = (url, body) => apiRequest(url, { method: 'POST', mode: 'cors', body }, false);
             const [appsScriptUrl, setAppsScriptUrl] = useState(API_URL);
             const [sheetsConnected, setSheetsConnected] = useState(false);
             const [sheetsLoading, setSheetsLoading] = useState(false);
@@ -191,16 +245,14 @@
                 setErrors([]);
                 try {
                     // 1. Загружаем текущие расчёты из базы
-                    const salaryResp = await fetch(`${API_URL}?action=getSalaryData&month=${encodeURIComponent(month)}`, { method: 'GET', mode: 'cors' });
-                    const salaryResult = await salaryResp.json();
+                    const salaryResult = await apiGet(`${API_URL}?action=getSalaryData&month=${encodeURIComponent(month)}`);
                     if (!salaryResult.success || !salaryResult.data?.employees) {
                         setErrors(['Нет данных расчётов для ' + month]);
                         return;
                     }
 
                     // 2. Загружаем данные смен (там столбец "Выплачено" = авансы)
-                    const shiftResp = await fetch(`${API_URL}?action=getShiftsData&month=${encodeURIComponent(month)}`, { method: 'GET', mode: 'cors' });
-                    const shiftResult = await shiftResp.json();
+                    const shiftResult = await apiGet(`${API_URL}?action=getShiftsData&month=${encodeURIComponent(month)}`);
                     if (!shiftResult.success || !shiftResult.data?.employees) {
                         setErrors(['Ошибка загрузки смен для ' + month]);
                         return;
@@ -229,12 +281,7 @@
                     });
 
                     // 5. Сохраняем обратно
-                    const saveResp = await fetch(`${API_URL}?action=saveSalaryData`, {
-                        method: 'POST',
-                        mode: 'cors',
-                        body: JSON.stringify({ month, employees: updatedEmployees })
-                    });
-                    const saveResult = await saveResp.json();
+                    const saveResult = await apiPost(`${API_URL}?action=saveSalaryData`, JSON.stringify({ month, employees: updatedEmployees }));
 
                     if (saveResult.success) {
                         // Показываем обновлённые данные
@@ -271,18 +318,15 @@
                 (async () => {
                     setSheetsLoading(true);
                     try {
-                        const response = await fetch(`${API_URL}?action=test`, { method: 'GET', mode: 'cors' });
-                        const result = await response.json();
+                        const result = await apiGet(`${API_URL}?action=test`);
                         if (result.success) {
                             setSheetsConnected(true);
                             // Загрузить сохранённые месяцы расчётов
-                            const mResp = await fetch(`${API_URL}?action=getMonths`, { method: 'GET', mode: 'cors' });
-                            const mResult = await mResp.json();
+                            const mResult = await apiGet(`${API_URL}?action=getMonths`);
                             if (mResult.success) setSavedMonths(mResult.data || []);
 
                             // Загрузить доступные месяцы смен
-                            const smResp = await fetch(`${API_URL}?action=getShiftMonths`, { method: 'GET', mode: 'cors' });
-                            const smResult = await smResp.json();
+                            const smResult = await apiGet(`${API_URL}?action=getShiftMonths`);
                             if (smResult.success && smResult.data) {
                                 setShiftMonths(smResult.data);
                                 if (smResult.data.length > 0) {
@@ -304,8 +348,7 @@
                 setErrors([]);
                 try {
                     // Загрузка смен
-                    const shiftResp = await fetch(`${API_URL}?action=getShiftsData&month=${encodeURIComponent(month)}`, { method: 'GET', mode: 'cors' });
-                    const shiftResult = await shiftResp.json();
+                    const shiftResult = await apiGet(`${API_URL}?action=getShiftsData&month=${encodeURIComponent(month)}`);
                     if (shiftResult.success && shiftResult.data) {
                         setShiftsFromDb(shiftResult.data.employees);
                         setMonthSheet(month);
@@ -315,8 +358,7 @@
                     }
 
                     // Загрузка авансов
-                    const advResp = await fetch(`${API_URL}?action=getAdvances`, { method: 'GET', mode: 'cors' });
-                    const advResult = await advResp.json();
+                    const advResult = await apiGet(`${API_URL}?action=getAdvances`);
                     if (advResult.success && advResult.data) {
                         const advData = advResult.data.advances || advResult.data;
                         const debug = advResult.data.debug || {};
@@ -350,11 +392,7 @@
 
                 setSheetsLoading(true);
                 try {
-                    const response = await fetch(`${appsScriptUrl}?action=test`, {
-                        method: 'GET',
-                        mode: 'cors'
-                    });
-                    const result = await response.json();
+                    const result = await apiGet(`${appsScriptUrl}?action=test`);
                     if (result.success) {
                         setSheetsConnected(true);
                         setErrors([]);
@@ -374,11 +412,7 @@
             const loadSavedMonths = async () => {
                 if (!appsScriptUrl.trim()) return;
                 try {
-                    const response = await fetch(`${appsScriptUrl}?action=getMonths`, {
-                        method: 'GET',
-                        mode: 'cors'
-                    });
-                    const result = await response.json();
+                    const result = await apiGet(`${appsScriptUrl}?action=getMonths`);
                     if (result.success) {
                         setSavedMonths(result.data || []);
                     }
@@ -406,13 +440,7 @@
                         employees: processedData.employees
                     };
 
-                    const response = await fetch(`${appsScriptUrl}?action=saveSalaryData`, {
-                        method: 'POST',
-                        mode: 'cors',
-                        body: JSON.stringify(salaryPayload)
-                    });
-
-                    const result = await response.json();
+                    const result = await apiPost(`${appsScriptUrl}?action=saveSalaryData`, JSON.stringify(salaryPayload));
                     if (result.success) {
                         // Транзакции и каталог синхронизируются автоматически через Billz
                         // Сохраняем только расчёты зарплат
@@ -445,8 +473,7 @@
                     // 1. Загружаем транзакции из базы (Billz auto-sync)
                     setLoadingTransactions(true);
                     setWarnings(['⏳ Загружаю транзакции из базы...']);
-                    const txResp = await fetch(`${API_URL}?action=getTransactions&month=${encodeURIComponent(monthSheet)}`, { method: 'GET', mode: 'cors' });
-                    const txResult = await txResp.json();
+                    const txResult = await apiGet(`${API_URL}?action=getTransactions&month=${encodeURIComponent(monthSheet)}`);
                     setLoadingTransactions(false);
 
                     if (!txResult.success || !txResult.data || !txResult.data.transactions) {
@@ -465,8 +492,7 @@
                     // 1b. Подтягиваем «Настойки бонус» из листа Расчёты (вручную вводимая колонка)
                     let tinctureBonusByName = {};
                     try {
-                        const salResp = await fetch(`${API_URL}?action=getSalaryData&month=${encodeURIComponent(monthSheet)}`, { method: 'GET', mode: 'cors' });
-                        const salJson = await salResp.json();
+                        const salJson = await apiGet(`${API_URL}?action=getSalaryData&month=${encodeURIComponent(monthSheet)}`);
                         if (salJson && salJson.success && salJson.data && salJson.data.employees) {
                             Object.entries(salJson.data.employees).forEach(([n, e]) => {
                                 tinctureBonusByName[n] = Number(e.tinctureBonus || 0);
@@ -748,8 +774,7 @@
                                                 onClick={async () => {
                                                     setWarnings([`⏳ Загрузка данных за ${month}...`]);
                                                     try {
-                                                        const resp = await fetch(`${appsScriptUrl}?action=getSalaryData&month=${encodeURIComponent(month)}`, { method: 'GET', mode: 'cors' });
-                                                        const result = await resp.json();
+                                                        const result = await apiGet(`${appsScriptUrl}?action=getSalaryData&month=${encodeURIComponent(month)}`);
                                                         if (result.success && result.data && result.data.employees) {
                                                             const emps = Object.values(result.data.employees).map(emp => ({
                                                                 ...emp,
