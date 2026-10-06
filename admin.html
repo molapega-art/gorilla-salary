@@ -185,8 +185,18 @@
             function fetchJson(url, init, signal) {
                 const sep = url.includes('?') ? '&' : '?';
                 return fetch(`${url}${sep}_=${Date.now()}`, { ...init, signal })
-                    .then(res => res.text())
-                    .then(text => JSON.parse(text)); // HTML-страница ошибки упадёт здесь
+                    .then(res => res.text().then(text => {
+                        const json = JSON.parse(text); // HTML-страница ошибки упадёт здесь
+                        // Во время сбоев Apps Script браузер по редиректу уходит GET'ом на сам exec (тело POST
+                        // теряется) → doGet отвечает «Unknown action». Запись не выполнялась — это сбой, повторяем.
+                        if (init.method === 'POST' && (
+                            (json && json.success === false && json.message === 'Unknown action') ||
+                            /script\.google\.com\/macros\/s\/[^/]+\/exec/.test(res.url || '')
+                        )) {
+                            throw new Error('сервер потерял тело запроса (редирект POST→GET)');
+                        }
+                        return json;
+                    }));
             }
 
             async function apiRequest(url, init, hedged, attempts = API_TIMEOUTS.length) {
